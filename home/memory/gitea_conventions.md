@@ -75,7 +75,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 — act runner resolves from gitea mirror or local cache
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1 — act runner resolves from gitea mirror or local cache
       - name: Build
         run: go build ./...
 ```
@@ -83,7 +83,7 @@ jobs:
 **SHA pinning:** Gitea's act runner resolves actions from Gitea's own mirror of `actions/` repos (or a configured action cache server). Pin to a full commit SHA exactly as you would on GitHub:
 
 ```yaml
-- uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 ```
 
 Never use a tag reference (`@v4`) — tags are mutable. Always pin to the commit SHA.
@@ -102,7 +102,7 @@ secret-scan:
     # or casjaysdev/rust:latest
     image: casjaysdev/go:latest
   steps:
-    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       with:
         fetch-depth: 0
     - uses: trufflesecurity/trufflehog@{sha}
@@ -118,7 +118,7 @@ secret-scan:
   container:
     image: ${{ needs.ensure-build-image.outputs.image }}
   steps:
-    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       with:
         fetch-depth: 0
     - uses: trufflesecurity/trufflehog@{sha}
@@ -272,7 +272,7 @@ release:
   runs-on: ubuntu-latest
   if: startsWith(gitea.ref, 'refs/tags/v')
   steps:
-    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
     - name: Validate tag
       run: |
         tag="${{ gitea.ref_name }}"

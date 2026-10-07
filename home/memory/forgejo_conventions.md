@@ -77,7 +77,7 @@ jobs:
       # Go projects always use this directly — never golang:alpine
       image: casjaysdev/go:latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Build
         run: go build ./...
 ```
@@ -87,7 +87,7 @@ Forgejo runner labels differ from GitHub-hosted runners. Common self-hosted labe
 **SHA pinning:** Pin actions to a full commit SHA:
 
 ```yaml
-- uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 ```
 
 Forgejo instances may mirror `actions/` from Codeberg, Forgejo's own action cache, or a configured upstream. Confirm with the instance admin which action mirror is in use. Tags are mutable regardless of source — always pin to the SHA.
@@ -106,7 +106,7 @@ secret-scan:
     # or casjaysdev/rust:latest
     image: casjaysdev/go:latest
   steps:
-    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       with:
         fetch-depth: 0
     - uses: trufflesecurity/trufflehog@{sha}
@@ -122,7 +122,7 @@ secret-scan:
   container:
     image: ${{ needs.ensure-build-image.outputs.image }}
   steps:
-    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       with:
         fetch-depth: 0
     - uses: trufflesecurity/trufflehog@{sha}
@@ -264,7 +264,7 @@ release:
   runs-on: docker
   if: startsWith(forgejo.ref, 'refs/tags/v')
   steps:
-    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
     - name: Validate tag
       run: |
         tag="${{ forgejo.ref_name }}"
