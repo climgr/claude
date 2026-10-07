@@ -75,7 +75,7 @@ For each GitHub Actions SHA that changed — required on GitHub, Gitea, and Forg
 - Fetch `action.yml` at the new SHA:
   `https://raw.githubusercontent.com/{owner}/{repo}/{new-sha}/action.yml`
 - Find `runs.using`. Acceptable: `node24`, `composite`, `docker`
-- Blocked (do not merge): `node20` (removed 2026-09-16), `node16`, `node12`
+- Blocked (do not merge): `node20` (removed 2026-09-23), `node16`, `node12`
 - If blocked: comment on the PR/MR with the specific runtime issue
 
 **3. No supply-chain change**

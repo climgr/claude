@@ -76,7 +76,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -332,7 +332,7 @@ permissions:
 
 jobs:
   build-standard:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -357,7 +357,7 @@ jobs:
           # + latest/version/YYMM on tag push, + beta on beta branch push
 
   build-devel:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/'))
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2

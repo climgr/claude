@@ -164,7 +164,7 @@ strategy:
   # never cancel other matrix cells when one fails
   fail-fast: false
   matrix:
-    os: [ubuntu-latest]
+    os: [ubuntu-26.04]
     # test current + prior stable release
     go: ["stable", "oldstable"]
 ```

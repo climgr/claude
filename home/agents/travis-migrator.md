@@ -25,7 +25,7 @@ Full key reference (fetch `https://config.travis-ci.com/` or `https://docs.travi
 | Key | Meaning | Maps to |
 |-----|---------|---------|
 | `language` | Toolchain (`go`, `node_js`, `python`, `rust`, `ruby`, `bash`, …) | Toolchain image / setup-action choice |
-| `os` / `dist` / `arch` | OS, distro codename, CPU arch | Runner label (`ubuntu-latest`, etc.) or container image + `platforms:` |
+| `os` / `dist` / `arch` | OS, distro codename, CPU arch | Runner label (`ubuntu-26.04`, etc.) or container image + `platforms:` |
 | `env` | Env vars (plain, matrix, or `secure:` encrypted) | `env:` block; `secure:` values become provider secrets — flag them, never decode or print them |
 | `jobs.include` / `matrix.include` (and legacy `matrix:`) | Parallel job variations | Build `strategy.matrix` (GitHub/Gitea/Forgejo) or parallel `job:` entries (GitLab) or parallel `stage` (Jenkins) |
 | `stages` | Named sequential stage groups | Job `needs:`/`stage:` ordering |

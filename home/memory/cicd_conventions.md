@@ -60,6 +60,8 @@ For Forgejo vs Gitea (both expose `/api/v1/version`): Forgejo sets an `X-Forgejo
 
 Gitea and Forgejo use the act runner — their workflow syntax is GitHub Actions-compatible. The same YAML (modulo registry/secret variable names) usually works on GitHub, Gitea, and Forgejo with no changes.
 
+**Runner label exception:** GitHub workflows pin `runs-on: ubuntu-26.04` (the `ubuntu-latest` label moves from 24.04 to 26.04 between 2026-10-19 and 2026-11-19, so an unpinned label changes the image without any edit). Gitea and Forgejo runners match `runs-on` against labels registered on the instance, so the same value only schedules there if that label is registered; otherwise use the instance's own label (commonly `ubuntu-latest`, `docker`, or `native`) in `.gitea/workflows/` and `.forgejo/workflows/`.
+
 ### Required Workflow Set Per Provider
 
 Every project must provide the equivalent of three gates on every provider:
@@ -288,7 +290,7 @@ act pull_request
 act --list
 
 # Use a specific platform image
-act -P ubuntu-latest=catthehacker/ubuntu:act-latest
+act -P ubuntu-26.04=catthehacker/ubuntu:act-latest
 ```
 
 **Rules:**
@@ -321,7 +323,7 @@ For all other languages (Node, Python, and any project with a custom toolchain n
 ```yaml
 jobs:
   ensure-build-image:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       packages: read
     outputs:
@@ -347,7 +349,7 @@ jobs:
 
   build:
     needs: ensure-build-image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     container:
       image: ${{ needs.ensure-build-image.outputs.image }}
       options: "--user 0:0"
@@ -383,7 +385,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -457,7 +459,7 @@ permissions:
 jobs:
   build:
     # Inherits read-only — no overrides needed
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     ...
 
   release:
@@ -635,7 +637,7 @@ Every external action (`uses: owner/action@...`) MUST be pinned to a full commit
 **When updating a pinned SHA**, verify three things:
 
 1. **Action is still maintained** — check the upstream repo is not archived, deprecated, or abandoned
-2. **Runtime is still supported** — open the action's `action.yml` at the new SHA and check `runs.using`; if it names a runtime that GitHub has deprecated or scheduled for removal, the action will silently fail after that date. Example: `node20` is removed from GitHub-hosted runners on **2026-09-16** — any action still on `node20` must be updated to a SHA where it has migrated to `node24` (all common `actions/*` and `docker/*` actions have already done so; see the Common Action Reference SHAs table below)
+2. **Runtime is still supported** — open the action's `action.yml` at the new SHA and check `runs.using`; if it names a runtime that GitHub has deprecated or scheduled for removal, the action will silently fail after that date. Example: `node20` is removed from GitHub-hosted runners on **2026-09-23** — any action still on `node20` must be updated to a SHA where it has migrated to `node24` (all common `actions/*` and `docker/*` actions have already done so; see the Common Action Reference SHAs table below)
 3. **No supply-chain change** — skim the diff between the old and new SHA; unexpected new dependencies, changed entrypoints, or network calls added to setup steps are red flags
 
 Renovate covers `github-actions` ecosystem updates automatically via `pinDigests: true` — but it only updates the SHA, not the runtime verification. The runtime check is always manual.
