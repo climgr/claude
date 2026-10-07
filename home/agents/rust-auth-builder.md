@@ -4269,6 +4269,8 @@ Private-registration mode is covered the same way: build a second `test_state()`
 
 ## Step 15 — Final checks
 
+Subagents never run these commands (`no-subagent-gates.sh` blocks `make`, tests, and gates): report back and list the commands below for the main session to run.
+
 ```bash
 # Compile check
 make build

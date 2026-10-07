@@ -1,3 +1,4 @@
+| `no-subagent-gates.sh` | PreToolUse Bash | Blocks `make` and test runners (`go test`, `cargo test`/`nextest`/`clippy`, `pytest`, `npm`/`yarn`/`pnpm` test and `run test|lint|build|check`, `mvn`, `gradle`, `dotnet test`, `mix test`, and the same launched through `docker`/`podman`/`incus` exec) when the tool call's `agent_id` field is set — a subagent never runs the test gate, the lint gate, or `make`; the main session runs them once after reviewing the full diff. Plain builds (`go build`) and `bash -n` are not blocked |
 # climgr/claude — Implementation Spec (THE HOW)
 
 This file is read-only during routine work. Placeholders like `{deploy_target}` resolve from `IDEA.md → ## Project variables`.

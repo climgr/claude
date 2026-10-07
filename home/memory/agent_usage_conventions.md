@@ -1,6 +1,6 @@
 ---
 name: Agent usage conventions
-description: model routing, the hard no-subagent-commit rule, why a "no edits" instruction isn't enforcement, fork/subagent scope discipline, and preferring smaller scoped units of work
+description: model routing, the hard no-subagent-commit and no-subagent-gates rules, why a "no edits" instruction isn't enforcement, fork/subagent scope discipline, and preferring smaller scoped units of work
 type: user
 ---
 
@@ -43,6 +43,21 @@ single-line edits, simple lookups, mechanical refactors.
 agents, edits and reports back only; only the main session reviews the full
 diff, writes `COMMIT_MESS`, and runs `gitcommit`. Mechanically enforced by
 `no-subagent-commit.sh`; not a judgment call an agent can override.
+
+## Agents Never Run Tests, Builds, or Gates
+
+**Hard rule.** A subagent never runs `make`, a test runner, the lint gate, or
+any build/commit gate. Self-Validation and the pre-commit gates belong to the
+main session, which runs them once after reviewing the whole diff — N agents
+each running the suite multiplies cost and races on shared caches, and an
+agent mid-task can report green or red on code that is only partly written.
+An agent edits the files in its scope, reports back what it changed, and
+names the gate commands the main session should run. Mechanically enforced
+by `no-subagent-gates.sh` (blocks `make`, `go test`, `cargo test`/`clippy`,
+`pytest`, `npm`/`yarn`/`pnpm` test and `run test|lint|build|check`, `mvn`,
+`gradle`, `dotnet test`, `mix test`, including through `docker`/`podman`/`incus`).
+Plain builds and `bash -n` are not blocked. A prompt that tells an agent to
+"run the tests" does not override the hook.
 
 ## "No Edits" in a Prompt Is Not Enforcement
 

@@ -160,7 +160,7 @@ For each file that has hard-coded PART numbers from the SERVER spec (18 onward) 
 
 **Group F — Build verification**
 
-Final task: run `make build` and `make test` to confirm the project compiles and tests pass after all changes.
+Final task: do not run `make build` or `make test` (subagents never run builds, tests, or gates — `no-subagent-gates.sh` blocks them). Report back that the main session must run `make build` and `make test` to confirm the project compiles and tests pass after all changes.
 
 ---
 
@@ -209,7 +209,7 @@ For each file that has hard-coded PART numbers from the API spec (17 onward) tha
 
 **Group F — Build verification**
 
-Final task: run `make build` and `make test` to confirm the project compiles and tests pass after all changes.
+Final task: do not run `make build` or `make test` (subagents never run builds, tests, or gates — `no-subagent-gates.sh` blocks them). Report back that the main session must run `make build` and `make test` to confirm the project compiles and tests pass after all changes.
 
 ---
 

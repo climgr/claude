@@ -533,6 +533,8 @@ Must contain:
 
 ## Pre-Commit Checklist
 
+The main instance runs this checklist once, after reviewing the full diff. Subagents never run tests, lint, builds, or the commit; they edit their scoped files and report back.
+
 - [ ] Format check passes
 - [ ] Lint passes (zero warnings)
 - [ ] Tests pass

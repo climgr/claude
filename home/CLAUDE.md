@@ -193,6 +193,7 @@ Full rules (smaller scoped units of work, model routing, no-subagent-commit, "no
 - **Prefer smaller, scoped units of work** — one file/finding/subtask per dispatch, batch large diffs instead of one sprawling change
 - **Model routing** — cheapest capable model per task; Haiku for trivial tasks (renames, format conversions, mechanical refactors)
 - **Agents never commit — hard rule, no exceptions**, mechanically enforced by `no-subagent-commit.sh`
+- **Agents never run tests, builds, or gates — hard rule**, mechanically enforced by `no-subagent-gates.sh`: no `make`, test runner, lint gate, or commit gate from a subagent. Self-Validation and the pre-commit gates are the main session's job, run once after the full diff is reviewed; a subagent edits its scoped files and reports back (partial work is never committed because only the main session commits)
 - A "no edits" instruction in a prompt is a request, not enforcement — an agent/fork keeps Edit/Write regardless of wording; use `explorer`/`Explore` for a mechanical guarantee
 - Fork/subagent scope is exactly what its prompt names — no self-directed coordination, no editing outside scope
 

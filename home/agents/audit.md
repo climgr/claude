@@ -414,6 +414,8 @@ Started: {ISO 8601 date}
 
 ## Rust Quality Gates (apply when `Cargo.toml` present)
 
+Subagents never run these gates (`no-subagent-gates.sh` blocks them): when running as a subagent, report which gates the main session must run instead of running them.
+
 All commands run inside the project Docker image — never on the host.
 
 - [ ] `cargo fmt --all --check` passes
@@ -424,6 +426,8 @@ All commands run inside the project Docker image — never on the host.
 - [ ] Static-linkage check (`ldd` / `otool -L`) run and clean
 
 ## Go Quality Gates (apply when `go.mod` present)
+
+Subagents never run these gates (`no-subagent-gates.sh` blocks them): when running as a subagent, report which gates the main session must run instead of running them.
 
 All commands run inside Docker — never on the host.
 
