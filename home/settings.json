@@ -29,12 +29,16 @@
     "auto-mode-setup": "off"
   },
   "permissions": {
+    "defaultMode": "dontAsk",
+    "disableAutoMode": "disable",
     "allow": [
       "Bash(**)",
       "Read(**)",
       "Edit(**)",
       "Skill(**)",
       "Agent",
+      "WebFetch",
+      "Monitor",
       "Edit(~/Projects/**/.git/COMMIT_MESS)",
       "Edit(**/.git/COMMIT_MESS)",
       "Edit(**/.git/COMMIT_EDITMSG)",
