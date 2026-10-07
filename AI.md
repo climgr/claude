@@ -443,6 +443,8 @@ git clone https://github.com/claudemgr/{lang|type}.git ~/Projects/github/claudem
 
 Templates are licensed WTFPL (the templates themselves); generated projects ship MIT.
 
+**No model in any template.** No template (repo spec or `home/TEMPLATES/` file) sets, pins, or suggests a model: no `model` key or field-table row in a settings example, no example model ID, no `model:` agent frontmatter, no model-routing guidance. The model is the user's choice, and omitting it keeps templates portable and lets agents inherit.
+
 ---
 
 ## Part 10: Commit Conventions
