@@ -1,6 +1,4 @@
 {
-  "model": "",
-  "fallbackModel": [ "" ],
   "agent": "general",
   "language": "english",
   "cleanupPeriodDays": 60,

@@ -226,7 +226,6 @@ Files in `home/memory/` are loaded on demand at session start via `MEMORY.md`. T
 | `tool_conventions.md` | Internet access rules, `curl`/`wget`/`grep` defaults, provider CLIs, `act`, image handling |
 | `ui_ux_conventions.md` | Designer-level UI/UX standards for web, desktop, mobile, TUI — theme, accessibility, layout |
 | `external_contributions.md` | Rules for forks/PRs/fixes to third-party projects — upstream conventions win, task-scoped diffs only |
-| `model_routing.md` | Route each unit of work to the cheapest capable model — the largest lever on capped-plan consumption |
 | `version_conventions.md` | How version strings originate in `release.txt` and flow through build, binaries, images, releases |
 | `standards_reference.md` | HTTP status codes, RFC 7807, ISO 8601, semver, MIME, UUID, TLS, JWT, OAuth2, pagination |
 

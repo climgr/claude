@@ -66,7 +66,7 @@ The global AI instruction file. Loaded by Claude Code at the start of every sess
 15. `## Output` — no preamble, tight budget, no emojis in code, no AI attribution
 16. `## Tool Preference` — right tool for the job; curl/wget/grep defaults
 17. `## Token & Context Discipline` — explorer for broad searches, read narrowly
-18. `## Agent Usage` — Haiku for trivial tasks
+18. `## Agent Usage` — scoped dispatch, no commits or gates from agents, agents inherit the session model
 19. `## Autonomy` — pre-authorized workflows, allowlists
 20. `## Commit Workflow` — gitcommit only, pre-commit sequence, message format
 
@@ -106,11 +106,10 @@ type: user
 | `project_conventions.md` | `{project_dir}/AI.md` / `IDEA.md` / `CLAUDE.md` roles, placeholder system, template system, first-time setup |
 | `communication_conventions.md` | Ask-if-unsure exceptions, question-detection rules, general communication posture |
 | `drift_prevention_conventions.md` | Pre-edit self-check checklist, post-compaction lazy re-verification, project_dir resolution, `/clear` hook-bug workaround |
-| `agent_usage_conventions.md` | Prefer smaller scoped units of work, model routing pointer, agents-never-commit, "no edits" ≠ enforcement, fork/subagent scope discipline |
+| `agent_usage_conventions.md` | Prefer smaller scoped units of work, model inheritance rule, agents-never-commit, "no edits" ≠ enforcement, fork/subagent scope discipline |
 | `reuse_conventions.md` | Search-before-write for variables/constants, functions, UI components, and host-level system config entries |
 | `path_resolution_conventions.md` | Provider inference from git remote host, `~/Projects/local`, full Local System Management Zone conditions |
 | `local_system_zone.md` | Rules that relax under `~/Projects/local/system/**` (plaintext credentials, no LICENSE.md, systemctl pre-auth, cross-repo/host-config grants, raw git commands other than `commit`/`push`) and what never relaxes there |
-| `model_routing.md` | Route each unit of work to the cheapest capable model (Haiku/Sonnet/Opus/Fable); largest single lever on consumption |
 | `execution_hierarchy.md` | VM > Incus > Docker > host; execution scope rules |
 | `sensitive_data.md` | All public destinations equal; masking format (`key=xxxxx`); pre-flight checklist |
 | `image_conventions.md` | Convert before reading (max 1280px, WebP); fallback chain; URL image workflow |

@@ -1,6 +1,6 @@
 ---
 name: Agent usage conventions
-description: model routing, the hard no-subagent-commit and no-subagent-gates rules, why a "no edits" instruction isn't enforcement, fork/subagent scope discipline, and preferring smaller scoped units of work
+description: model inheritance, the hard no-subagent-commit and no-subagent-gates rules, why a "no edits" instruction isn't enforcement, fork/subagent scope discipline, and preferring smaller scoped units of work
 type: user
 ---
 
@@ -30,12 +30,13 @@ This is a general principle, not a hard size threshold — use judgment on
 where a task naturally splits; don't fragment a single coupled change just to
 hit a smaller unit count.
 
-## Model Routing
+## Model Inheritance
 
-Route each task to the cheapest capable model — full tier table in
-`~/.claude/memory/model_routing.md`. Largest single lever on weekly-cap
-consumption. Haiku for trivial tasks: renames, format conversions,
-single-line edits, simple lookups, mechanical refactors.
+The user chooses the model, never this config. Every agent inherits the
+session's model: no `model:` in agent frontmatter, no per-spawn `model`
+override on the Agent tool, and no `model` or `fallbackModel` in
+`settings.json`, unless the user explicitly asks for one. Cost control comes
+from scoped units of work, not from picking a cheaper model for the user.
 
 ## Agents Never Commit
 
