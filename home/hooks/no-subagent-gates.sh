@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202610070001-git
+##@Version           :  202610070230-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Wednesday, October 07, 2026 12:00 EDT
 # @@File             :  no-subagent-gates.sh
 # @@Description      :  PreToolUse hook: blocks make and test-runner commands when the top-level agent_id field is present, enforcing "agents never run tests, builds, or gates".
-# @@Changelog        :  New script
+# @@Changelog        :  Log the caller agent_id, agent_type, and payload keys on every block, to diagnose a main session blocked in error.
 # @@TODO             :  None
 # @@Other            :  Mirrors no-subagent-commit.sh; the main session owns the test gate, the lint gate, and the commit.
 # @@Resource         :  CLAUDE.md - Agent Usage - "Agents never run tests, builds, or gates"
@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202610070001-git"
+VERSION="202610070230-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 set -uo pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -40,9 +40,11 @@ printf '%s' "$INPUT" > "$INPUT_TMPFILE"
 
 python3 - "$INPUT_TMPFILE" <<'PYEOF'
 import json
+import os
 import re
 import shlex
 import sys
+import time
 
 try:
     with open(sys.argv[1], "r", encoding="utf-8", errors="replace") as _f:
@@ -214,6 +216,25 @@ for sub in re.split(r"[\n;]|&&|\|\||[|&]", cmd):
 
 if not found:
     sys.exit(0)
+
+# Record who was blocked so a wrongly blocked main session can be diagnosed from the log.
+try:
+    log_dir = os.path.join(os.environ.get("TMPDIR") or "/tmp", "claude-hooks", "no-subagent-gates")
+    os.makedirs(log_dir, exist_ok=True)
+    log_name = re.sub(r"[^A-Za-z0-9_.-]", "_", d.get("session_id", "") or "unknown") + ".log"
+    with open(os.path.join(log_dir, log_name), "a", encoding="utf-8") as lf:
+        lf.write(json.dumps({
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "agent_id": d.get("agent_id", ""),
+            "agent_type": d.get("agent_type", ""),
+            "permission_mode": d.get("permission_mode", ""),
+            "cwd": d.get("cwd", ""),
+            "payload_keys": sorted(d.keys()),
+            "matched": found,
+            "command": (d.get("tool_input", {}).get("command", "") or "")[:200],
+        }) + "\n")
+except Exception:
+    pass
 
 agent_type = d.get("agent_type", "") or "unknown"
 msg = (
