@@ -57,7 +57,7 @@ grep -cE '^internal_org:[[:space:]]*.+$'  IDEA.md 2>/dev/null
 If any are missing or IDEA.md does not exist:
 - Auto-detect candidates: `project_name=$(basename "$PWD")`, `project_org=$(basename "$(dirname "$PWD")")`
 - Present them to the user and ask for confirmation / corrections
-- Set `internal_name=$project_name` and `internal_org=$project_org` (frozen forever — warn the user)
+- Set `internal_name=$project_name` and `internal_org=$project_org` (stable — warn the user)
 - Create or update IDEA.md with the required variables before continuing
 - Do not guess — if the directory structure does not give a clear answer, ask
 
@@ -209,7 +209,7 @@ Keep it tight — one sentence per item. The user can read the files; they do no
 - **Toolchain always runs in Docker** — no `go`, `cargo`, `npm`, `pip`, etc. directly on host
 - **Confirm before overwriting** — never silently replace a `{project_dir}/AI.md` that already exists
 - **Confirm before destructive ops** — creating new files is fine without asking; replacing existing content requires a prompt
-- **`internal_name` and `internal_org` are frozen** — once set in `{project_dir}/IDEA.md`, never change them; warn the user loudly when setting them for the first time
+- **`internal_name` and `internal_org` are stable, not immutable** — once set in `{project_dir}/IDEA.md`, change them only on an explicit user-directed org/repo rename (update IDEA.md, grep every consumer, migrate on-disk paths and units) or at a fork's first setup (reset to the fork's own `{project_name}`/`{project_org}`); warn the user loudly when setting them for the first time
 - **Read all of PART 0–6 before acting** — do not start executing PART 1 before reading through PART 6; the later parts may constrain what the earlier ones permit
 - **Generate the loaders and the full `.claude/rules/*.md` set from AI.md's own mapping** — derive the file list and PART mapping from the spec's Rule Files table, never hardcode it; populate each file from the actual PART content; apply the spec's trigger conditions so a re-run on an existing project brings stale rules current instead of skipping them; preserve/merge hand-authored loader content, never blind-overwrite
 - **`AGENTS.md` always mirrors `CLAUDE.md` exactly** — a real file copy, regenerated whenever CLAUDE.md's content changes; never a symlink (not portable across all platforms/filesystems)

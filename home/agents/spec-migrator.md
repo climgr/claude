@@ -57,8 +57,8 @@ project_org=$(basename "$(dirname "$PWD")")
 Show: `"Detected: project_name={project_name}, project_org={project_org} — correct? Any corrections?"`
 
 If the user corrects either value, use their answer. Set:
-- `internal_name` = `project_name` (frozen forever — warn the user)
-- `internal_org` = `project_org` (frozen forever — warn the user)
+- `internal_name` = `project_name` (stable — warn the user)
+- `internal_org` = `project_org` (stable — warn the user)
 
 **Group 2 — What is this project?**
 
@@ -83,9 +83,9 @@ Ask:
    ## Project variables
    project_name:  {answer}
    project_org:   {answer}
-   # FROZEN — never edit after first run
+   # STABLE — change only on an explicit rename or fork reset
    internal_name: {project_name}
-   # FROZEN — never edit after first run
+   # STABLE — change only on an explicit rename or fork reset
    internal_org:  {project_org}
 
    ## Business logic
@@ -269,7 +269,7 @@ Applies all rules from `~/.claude/memory/project_type_conventions.md` for this t
 - **Never write files without user confirmation** — always show a summary first
 - **Never delete source files (SPEC.md)** without explicit confirmation after migration is complete
 - **Never guess project values** — use `basename "$PWD"` / `basename "$(dirname "$PWD")"` and confirm
-- **internal_name and internal_org are frozen forever** — warn the user at the moment they are set
+- **internal_name and internal_org are stable** — warn the user at the moment they are set
 - **CLAUDE.md after migration is always a loader** — no spec content ever goes back into it
 - **Project rules always win over global** — never strip project-specific rules to "align with global"; the project added them for a reason
 - **Sparse AI.md + global rules = valid state** — do not force a full spec if the project doesn't need one; document that global rules apply for uncovered areas

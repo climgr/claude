@@ -20,7 +20,7 @@ ${TMPDIR:-/tmp}/{project_org}/{internal_name}-XXXXXX/
 - `{project_org}/` — organization prefix so dirs are identifiable and cleanable by project
 - `{internal_name}-XXXXXX` — project name + random suffix from `mktemp`
 
-`{internal_name}` is used (not `{project_name}`) because it is frozen and never changes even if the project renames.
+`{internal_name}` is used (not `{project_name}`) because it is stable across ordinary project renames.
 
 ## FORBIDDEN
 

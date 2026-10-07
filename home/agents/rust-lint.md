@@ -100,7 +100,7 @@ Flag any missing field or wrong value.
 ### Temp paths
 
 - Never hardcode `/tmp` — use `std::env::temp_dir()`. Flag literal `/tmp/` strings outside of comments/tests.
-- Temp dirs must be prefixed with `{project_org}/{internal_name}-XXXXXX` (`{internal_name}` is the frozen on-disk identifier; never `{project_name}`). Flag bare `tempfile::tempdir()` without a prefixed path.
+- Temp dirs must be prefixed with `{project_org}/{internal_name}-XXXXXX` (`{internal_name}` is the stable on-disk identifier; never `{project_name}`). Flag bare `tempfile::tempdir()` without a prefixed path.
 
 ## New vs Pre-existing
 

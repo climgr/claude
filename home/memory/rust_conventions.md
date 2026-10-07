@@ -467,5 +467,5 @@ thiserror = "2"
 - **No `-musl` suffix** — never include `-musl` in the output binary name; schema is `{name}-{os}-{arch}` regardless of target triple (e.g. `x86_64-unknown-linux-musl` still outputs `{name}-linux-amd64`)
 - **Rust-only source** — no C/C++ in the binary (ring is the pre-approved exception)
 - **Embed assets at build time** — use `include_bytes!`, `include_str!`, or the `built` crate; never load from filesystem at runtime
-- **No hardcoded temp paths** — use `std::env::temp_dir()` and always prefix with `{project_org}/{internal_name}-XXXXXX` (`{internal_name}` is the frozen on-disk identifier; never `{project_name}` which may change). See `tempdir_conventions.md`.
+- **No hardcoded temp paths** — use `std::env::temp_dir()` and always prefix with `{project_org}/{internal_name}-XXXXXX` (`{internal_name}` is the stable on-disk identifier; never `{project_name}` which may change). See `tempdir_conventions.md`.
 - **No external cron** — never depend on host cron or systemd timers for application-level scheduling. Use in-process scheduling only: `tokio::time::interval` / `tokio::time::sleep` for async periodic tasks; a `std::thread::sleep` loop for sync periodic tasks; the `cron` crate for cron-expression parsing. Never `std::process::Command::new("cron")` or similar.

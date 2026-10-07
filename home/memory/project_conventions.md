@@ -94,11 +94,11 @@ Placeholders in AI.md (e.g., `{project_name}`, `{PROJECT_ORG}`) are **reference 
 |-------------|------------|--------------|
 | `{project_name}` / `{PROJECT_NAME}` | Mutable (project may rename) | No |
 | `{project_org}` / `{PROJECT_ORG}` | Mutable | No |
-| `{internal_name}` / `{INTERNAL_NAME}` | **Frozen forever** at first-time setup | Yes — config/data/cache dirs, systemd units |
-| `{internal_org}` / `{INTERNAL_ORG}` | **Frozen forever** at first-time setup | Yes — Bundle IDs, package IDs |
+| `{internal_name}` / `{INTERNAL_NAME}` | **Stable** at first-time setup | Yes — config/data/cache dirs, systemd units |
+| `{internal_org}` / `{INTERNAL_ORG}` | **Stable** at first-time setup | Yes — Bundle IDs, package IDs |
 | `{plist_name}` | Derived, not stored: `io.github.{internal_org}.{internal_name}` | Yes |
 
-**internal_name and internal_org are set ONCE (initial value = project_name/project_org) and never edited after the project ships. On-disk identifiers never change even if the project renames.**
+**internal_name and internal_org are set once (initial value = project_name/project_org) and stay stable across ordinary renames. They reset only on an explicit user-directed org/repo rename (update IDEA.md, grep every consumer, migrate on-disk paths and units) or at a fork's first setup (reset to the fork's own `{project_name}`/`{project_org}`); a reset of a shipped project must migrate on-disk identifiers.**
 
 ## Template system
 
@@ -112,7 +112,7 @@ Placeholders in AI.md (e.g., `{project_name}`, `{PROJECT_ORG}`) are **reference 
 1. Check if IDEA.md exists with all required `## Project variables` entries
 2. If not: detect values from directory structure (`basename "$PWD"`, `basename "$(dirname "$PWD")"`) — never guess
 3. Confirm with user before writing
-4. Create/update IDEA.md; set internal_name = project_name and internal_org = project_org (frozen immediately)
+4. Create/update IDEA.md; set internal_name = project_name and internal_org = project_org (stable immediately)
 5. If an existing CLAUDE.md has real project details, migrate them into IDEA.md; keep CLAUDE.md as a short loader only
 
 ## Directory layout
@@ -141,7 +141,7 @@ Placeholders in AI.md (e.g., `{project_name}`, `{PROJECT_ORG}`) are **reference 
 └── ...
 ```
 
-Temp, debug, and test output: `/tmp/{project_org}/{internal_name}-XXXXXX` — never committed. (`{internal_name}` is the frozen on-disk identifier, never `{project_name}` which may change.)
+Temp, debug, and test output: `/tmp/{project_org}/{internal_name}-XXXXXX` — never committed. (`{internal_name}` is the stable on-disk identifier, never `{project_name}` which may change.)
 
 ## Task dependency ordering
 

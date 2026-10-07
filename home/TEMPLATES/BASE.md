@@ -46,9 +46,9 @@ Example:
 
     project_name:  mytool
     project_org:   casjay
-    # FROZEN — set once at first-time setup, never edit
+    # STABLE — set at first-time setup; change only on an explicit rename or fork reset
     internal_name: mytool
-    # FROZEN — set once at first-time setup, never edit
+    # STABLE — set at first-time setup; change only on an explicit rename or fork reset
     internal_org:  casjay
     # primary implementation language
     language:      go
@@ -66,7 +66,7 @@ security assumptions, and any exceptions.)
 - Keys are **lower_snake_case** only
 - Never guess values: use commands and existing files
 - If a placeholder referenced by AI.md has no entry in `## Project variables`, setup MUST stop and ask instead of inventing a value
-- `internal_name` and `internal_org` are frozen forever once set — warn the user loudly when setting them for the first time
+- `internal_name` and `internal_org` stay stable across ordinary project renames — warn the user loudly when setting them for the first time. They reset only on an explicit user-directed org/repo rename (update IDEA.md, grep every consumer, migrate on-disk paths and units) or at a fork's first setup (reset to the fork's own `{project_name}`/`{project_org}`)
 
 **Rules for `## Business logic`:**
 - It MUST define the actual product scope for THIS project — not generic boilerplate
@@ -335,7 +335,7 @@ Default to **user scope**: user config, user data, user cache, per-user integrat
 
 ## Path Rule
 
-On-disk paths use the frozen pair `{internal_org}` and `{internal_name}` only — never the mutable `{project_org}` / `{project_name}`. This protects user data across project/org renames.
+On-disk paths use the stable pair `{internal_org}` and `{internal_name}` only — never the mutable `{project_org}` / `{project_name}`. This protects user data across project/org renames.
 
 | Purpose | Linux / BSD | macOS | Windows |
 |---------|-------------|-------|---------|
@@ -570,9 +570,9 @@ Must contain:
 
 project_name:  {project_name}
 project_org:   {project_org}
-# FROZEN
+# STABLE
 internal_name: {internal_name}
-# FROZEN
+# STABLE
 internal_org:  {internal_org}
 # e.g. go, rust, typescript, python
 language:      {language}

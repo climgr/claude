@@ -7,7 +7,7 @@ This file is read-only during routine work. Placeholders like `{deploy_target}` 
 ## Part 1: Repository Layout
 
 ```
-config/
+claude/
 ├── home/                        # mirrors ~/.claude/ exactly
 │   ├── CLAUDE.md                # global AI instructions (deployed to ~/.claude/CLAUDE.md)
 │   ├── settings.json            # permissions, hooks, Claude Code flags
