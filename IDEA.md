@@ -8,8 +8,8 @@ The `climgr` org is strictly for CLI tool configuration repos — mostly AI CLIs
 
 project_name: claude
 project_org: climgr
-internal_name: config
-internal_org: claudemgr
+internal_name: claude
+internal_org: climgr
 deploy_target: ~/.claude
 source_dir: home
 

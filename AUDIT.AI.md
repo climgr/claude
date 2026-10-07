@@ -219,7 +219,7 @@ anywhere in `home/CLAUDE.md` or `home/memory/*.md`:
       `${TMPDIR}/claude-test-lint-guard/…`, not the mandated
       `${TMPDIR}/{project_org}/{internal_name}-XXXXXX/` shape
       (`tempdir_conventions.md:16,30,32` names this exact shape FORBIDDEN).
-      Fixed: moved to `${TMPDIR}/claudemgr/config/test-lint-guard/${session_id}`
+      Fixed: moved to `${TMPDIR}/climgr/claude/test-lint-guard/${session_id}`
       — session_id takes the -XXXXXX uniqueness role since the marker must
       stay reconstructable by session_id alone; org/internal_name namespacing
       now matches the mandated shape.
@@ -295,7 +295,7 @@ anywhere in `home/CLAUDE.md` or `home/memory/*.md`:
 - [ ] `home/memory/file_ending_conventions.md` has no YAML frontmatter,
       violating AI.md:80-90 / the pre-commit validation step at AI.md:288.
 - [ ] Spec self-contradiction: `project_type_conventions.md:23` lists
-      `claudemgr/config` as a spec-collection example; `:178` says it is
+      `climgr/claude` as a spec-collection example; `:178` says it is
       not one. Hooks correctly follow `:178` — the `:23` line needs fixing.
 
 ## Priority 4 — documented gaps, no hook coverage (informational, no fix required unless requested)

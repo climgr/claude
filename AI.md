@@ -333,6 +333,9 @@ Controls Claude Code permissions and hook wiring. Structure:
   "hooks": {
     "PreToolUse": [...],
     "PostToolUse": [...]
+  },
+  "env": {
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "80"
   }
 }
 ```
@@ -344,6 +347,9 @@ Controls Claude Code permissions and hook wiring. Structure:
 - Sensitive files with explicit allows: `.git/COMMIT_MESS`, `.git/COMMIT_EDITMSG`, `CLAUDE.md`, `settings.json`, `settings.local.json`, `.env`, `app.env`, `default.env`
 - `deny` takes precedence over `allow`
 - Hook commands use `$HOME/.claude/hooks/` paths — never relative paths, and never a literal `~` (unreliable in a JSON command string; `$HOME` expands correctly)
+- **Auto-compaction lives in the `env` block.** `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` (1-100) is a percentage of the auto-compact window, so `80` compacts at 80% of whatever window the model has; it can only lower the default threshold and applies only to sessions that compact before the model's limit (native 1M windows, about 967K by default). `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is an absolute plain-integer token count (100000-1000000; `500k` is read as 500) that overrides every other window setting — leave it unset so the percentage stays relative
+- **Never set `CLAUDE_CODE_DISABLE_1M_CONTEXT` in `env`.** Set to `1` it holds native-1M models (Sonnet 5+, Opus 4.7+, Fable) to a 200K window; the docs define no meaning for `0`, so leave it unset. The `[1m]` model suffix is only needed for Opus/Sonnet 4.6 — native-1M models ignore it
+- A top-level `autoCompactWindow` or `modelSettings[model].autoCompactWindow` is an absolute token count that applies to every model (top-level) or one model (per-model); do not add either here unless a fixed absolute threshold is wanted
 
 ---
 
