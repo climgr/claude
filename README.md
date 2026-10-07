@@ -9,7 +9,7 @@ Global Claude Code configuration — agents, memory, hooks, and settings deploye
 | Path | Purpose |
 |------|---------|
 | `home/CLAUDE.md` | Global AI rules — always loaded at every session start |
-| `home/settings.json` | Claude Code permissions, hook wiring, and behavior flags |
+| `home/settings.json` | Claude Code permissions, hook wiring, env (auto-compact threshold, forced subagent model inheritance), and behavior flags |
 | `home/agents/` | Custom agent definitions |
 | `home/skills/` | Skill definitions (`/{name}`) |
 | `home/hooks/` | Hook scripts — gate destructive ops, enforce commit/test/lint discipline, guard project conventions |
@@ -141,6 +141,7 @@ Hook scripts in `home/hooks/` run synchronously before or after a matching tool 
 | `bound-shell-lifetime.sh` | PreToolUse Bash | Blocks unbounded shell lifetimes — unbounded poll loops, open-ended sleeps, `nohup`/`setsid`/`disown`, unbounded `tail -f`/`watch`, unmanaged `&` |
 | `zone-git-commit-push.sh` | PreToolUse Bash | Blocks raw `git commit` and raw `git push` everywhere, no zone exception for either — commit signing and push must always go through `gitcommit`; a zone repo that must never publish keeps a `.no_push` file instead |
 | `no-subagent-commit.sh` | PreToolUse Bash | Blocks `gitcommit`/`git commit`/`git push` when called from a subagent |
+| `no-subagent-gates.sh` | PreToolUse Bash | Blocks `make` and test runners (`go test`, `cargo test`, `pytest`, `npm test`, and the same through `docker`/`podman`/`incus`) when called from a subagent; the main session runs the gates once |
 | `no-force-push.sh` | PreToolUse Bash | Blocks all force-push forms everywhere, including inside the zone |
 | `no-history-rewrite.sh` | PreToolUse Bash | Blocks `git clean -f*`, `rebase`, `branch -D`, `tag -d`, `filter-repo`/`filter-branch` everywhere |
 | `no-destructive-bypass.sh` | PreToolUse Bash | Re-enforces the `git reset`/`dd`/`shred`/`mkfs*`/`wipefs` deny list against wrapper bypasses |
