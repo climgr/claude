@@ -26,6 +26,26 @@ Never run anything directly on the host unless no lower option works. Always use
 - Only remove resources created by the current project — never `docker system prune` or broad sweeps.
 - Identify resources by name/label/prefix before removing; if uncertain, list and ask.
 
+## Instance budget
+
+A test needs a handful of instances, never one per distro or per package.
+The tier order above is unchanged; this caps how many of any tier a project
+may hold at once.
+
+- **At most 4 running at once per project** across VMs, Incus instances, and
+  detached containers (`CLAUDE_MAX_TEST_INSTANCES`, default 4). The shape is
+  1-2 servers plus 2-3 clients, never a matrix.
+- **Never one instance per distro, per package, or per variant.** Test a
+  representative one, or run variants one after another in a single reused
+  instance, tearing it down between variants.
+- **Never launch from a loop, `xargs`, `parallel`, or `seq`.** One instance
+  per command, so the cap is checked on every launch.
+- **Over the cap needs the user's say-so.** Ask before raising
+  `CLAUDE_MAX_TEST_INSTANCES`; never raise it to get a task done.
+- Mechanically enforced by `limit-test-instances.sh`, which counts instances
+  named `{project_name}-*` and fails open when no runtime answers. Subagent
+  fan-out is capped separately by `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` (4).
+
 ## Incus Instance Naming
 
 Every Incus instance started by AI must follow the same naming schema as Docker containers:

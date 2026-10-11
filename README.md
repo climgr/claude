@@ -142,6 +142,7 @@ Hook scripts in `home/hooks/` run synchronously before or after a matching tool 
 | `zone-git-commit-push.sh` | PreToolUse Bash | Blocks raw `git commit` and raw `git push` everywhere, no zone exception for either — commit signing and push must always go through `gitcommit`; a zone repo that must never publish keeps a `.no_push` file instead |
 | `no-subagent-commit.sh` | PreToolUse Bash | Blocks `gitcommit`/`git commit`/`git push` when called from a subagent |
 | `no-subagent-gates.sh` | PreToolUse Bash | Blocks `make` and test runners (`go test`, `cargo test`, `pytest`, `npm test`, and the same through `docker`/`podman`/`incus`) when called from a subagent; the main session runs the gates once |
+| `limit-test-instances.sh` | PreToolUse Bash | Blocks creating a VM, Incus instance, or detached container when the project already has 4 running (`CLAUDE_MAX_TEST_INSTANCES`), and blocks launching them from a loop |
 | `no-force-push.sh` | PreToolUse Bash | Blocks all force-push forms everywhere, including inside the zone |
 | `no-history-rewrite.sh` | PreToolUse Bash | Blocks `git clean -f*`, `rebase`, `branch -D`, `tag -d`, `filter-repo`/`filter-branch` everywhere |
 | `no-destructive-bypass.sh` | PreToolUse Bash | Re-enforces the `git reset`/`dd`/`shred`/`mkfs*`/`wipefs` deny list against wrapper bypasses |
