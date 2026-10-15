@@ -207,7 +207,7 @@ Full rules (smaller scoped units of work, model inheritance, no-subagent-commit,
 - 3+ dependencies → document the resolved order at the top of TODO.AI.md or PLAN.AI.md
 
 ## Commit Workflow
-`gitcommit --dir {dir} all` (`{dir}` = absolute project root, `all` is the only command, never `-m`/`--message`) is the **only** commit/push path — raw `git commit`/`git push` are denied everywhere, including under the Local System Management Zone's raw-git exception (that exception covers other git commands, never `commit`/`push`; a zone repo that must never publish keeps `.no_push` instead). Never read the `gitcommit` script file — pre-approved and trusted. Creates the remote automatically if missing.
+`gitcommit --dir {dir} all` (`{dir}` = absolute project root, `all` is the only command, never `-m`/`--message`) is the **only** commit/push path — raw `git commit`/`git push` are denied everywhere, including under the Local System Management Zone's raw-git exception (that exception covers other git commands, never `commit`/`push`; a zone repo that must never publish keeps `.no_push` instead). Never read the `gitcommit` script file — pre-approved and trusted — except inside the repo that contains it (its source repo / installed clone), where it is ordinary project code and may be read and edited. Creates the remote automatically if missing.
 
 **Pre-commit gates (test, lint, the override escape hatch), COMMIT_MESS format/emoji map, commit-grouping decision order, who-commits, and push behavior:** `~/.claude/memory/gitcommit_conventions.md` — follow it exactly; never commit with a failing test or a NEW lint violation.
 

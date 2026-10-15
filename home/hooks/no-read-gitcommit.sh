@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, August 30, 2026 20:00 EDT
 # @@File             :  no-read-gitcommit.sh
 # @@Description      :  PreToolUse Read+Grep+Bash hook: blocks reading the commit wrapper script (Read/Grep tools, cat/less/head/etc via Bash), a previously prose-only rule.
-# @@Changelog        :  Decode the stdin payload file as UTF-8 with replacement and fail open on any parse exception (not only JSONDecodeError) — a non-UTF-8 byte previously raised UnicodeDecodeError and surfaced as a hook error.
+# @@Changelog        :  Allow reads and edits when the session's git repo contains the resolved gitcommit file (its source repo / installed clone). Previously: decode the stdin payload file as UTF-8 with replacement and fail open on any parse exception (not only JSONDecodeError) — a non-UTF-8 byte previously raised UnicodeDecodeError and surfaced as a hook error.
 # @@TODO             :  None
 # @@Other            :  Resolves the symlink target so both paths are blocked; the zone's raw-git pre-authorization never covers the commit wrapper itself.
 # @@Resource         :  CLAUDE.md - Commit Workflow, home/hooks/drift-guard-read.sh
@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202609170001-git"
+VERSION="202610150001-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 set -euo pipefail
 
@@ -87,8 +87,34 @@ if _which:
     GITCOMMIT_RESOLVED = os.path.realpath(_which)
 
 
+# The block exists so ordinary projects never inspect the commit wrapper. When
+# the session's own git repo contains the wrapper (its source repo, including
+# the installed clone the PATH symlink points into), the wrapper is the
+# project's own code and must be readable and editable. Any error resolving the
+# repo root leaves OWNING_REPO_ROOT unset, so the block stays in place.
+OWNING_REPO_ROOT = None
+if GITCOMMIT_RESOLVED:
+    try:
+        import subprocess
+
+        _cwd = payload.get("cwd", "") or os.getcwd()
+        _top = subprocess.run(
+            ["git", "-C", _cwd, "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=5, check=False,
+        ).stdout.strip()
+        if _top:
+            _top = os.path.realpath(_top)
+            if _top not in ("/", os.path.realpath(os.path.expanduser("~"))):
+                if GITCOMMIT_RESOLVED.startswith(_top + os.sep):
+                    OWNING_REPO_ROOT = _top
+    except Exception:
+        OWNING_REPO_ROOT = None
+
+
 def is_gitcommit_path(path):
     if not path or not GITCOMMIT_RESOLVED:
+        return False
+    if OWNING_REPO_ROOT:
         return False
     resolved = os.path.realpath(path)
     return path == GITCOMMIT_RESOLVED or resolved == GITCOMMIT_RESOLVED
