@@ -410,7 +410,7 @@ Both `volumes/` and `docker/volumes/` are gitignored — runtime data is never c
 Human debug/devel only. Uses the `:devel` image (built from `docker/Dockerfile.dev`). `DEBUG` on, `MODE: dev`, no `172.17.0.1:` bind, no valkey.
 
 ```yaml
-name: {name}-dev
+name: {name}
 
 x-logging: &default-logging
   driver: json-file
@@ -443,11 +443,11 @@ services:
       retries: 3
       start_period: 90s
     networks:
-      - {name}-dev
+      - {name}
 
 networks:
-  {name}-dev:
-    name: {name}-dev
+  {name}:
+    name: {name}
     external: false
 ```
 
@@ -658,7 +658,7 @@ Testing the built binary/server. `DEBUG` on, `MODE: dev`, `172.17.0.1:` bind, va
 ```yaml
 # nginx proxy address - http://172.17.0.1:{port}
 
-name: {name}-test
+name: {name}
 
 x-logging: &default-logging
   driver: json-file
@@ -696,7 +696,7 @@ services:
       {name}-cache:
         condition: service_healthy
     networks:
-      - {name}-test
+      - {name}
 
   {name}-cache:
     image: valkey/valkey:alpine
@@ -713,21 +713,21 @@ services:
       retries: 3
       start_period: 30s
     networks:
-      - {name}-test
+      - {name}
 
 networks:
-  {name}-test:
+  {name}:
     driver: bridge
     # explicit name for reliable cleanup
-    name: {name}-test
+    name: {name}
 ```
 
 Test Compose rules:
 - AI copies `docker-compose.test.yml` to a temp dir before running — `./volumes` resolves to `{tempdir}/volumes/`
 - Named bridge network for all test services — never `--network host` or default bridge
 - The valkey cache service uses `tmpfs` — no persistent volume, always starts clean
-- **Container names match production** (`{name}-app`, `{name}-cache`): dev and test never run on a production host, so a clash fails `docker compose up` loudly instead of silently replacing production. Keep the distinct `name: {name}-test` (and `{name}-dev`) project name and network — a shared project name would let compose adopt and replace production's containers instead of failing
-- Network name is explicit so `docker network rm {name}-test` cleans up reliably
+- **Dev and test use production's names**: container names (`{name}-app`, `{name}-cache`), the compose `name:` and the network are the same in every file, so the three files differ by environment variables only (plus the image tag and port binding). Dev and test never run on a production host: a shared name makes `docker compose up` there adopt and replace production's containers, so never run them on one
+- Network name is explicit (`{name}`) so `docker network rm {name}` cleans up reliably
 - Never mount `./volumes/` or any project directory path at runtime during tests
 
 ### AI Docker Compose rules
