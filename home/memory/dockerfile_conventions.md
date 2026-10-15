@@ -421,7 +421,7 @@ x-logging: &default-logging
 services:
   {name}:
     image: ghcr.io/{org}/{name}:devel
-    container_name: {name}-dev
+    container_name: {name}-app
     hostname: {name}
     restart: always
     pull_policy: always
@@ -671,7 +671,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    container_name: {name}-test
+    container_name: {name}-app
     hostname: {name}
     restart: "no"
     logging: *default-logging
@@ -680,7 +680,7 @@ services:
       MODE: dev
       PORT: 80
       TZ: ${TZ:-America/New_York}
-      CACHE_URL: valkey://{name}-cache-test:6379
+      CACHE_URL: valkey://{name}-cache:6379
     volumes:
       - ./volumes/config:/config:z
       - ./volumes/data:/data:z
@@ -693,14 +693,14 @@ services:
       retries: 3
       start_period: 90s
     depends_on:
-      {name}-cache-test:
+      {name}-cache:
         condition: service_healthy
     networks:
       - {name}-test
 
-  {name}-cache-test:
+  {name}-cache:
     image: valkey/valkey:alpine
-    container_name: {name}-cache-test
+    container_name: {name}-cache
     restart: "no"
     logging: *default-logging
     tmpfs:
@@ -726,6 +726,7 @@ Test Compose rules:
 - AI copies `docker-compose.test.yml` to a temp dir before running — `./volumes` resolves to `{tempdir}/volumes/`
 - Named bridge network for all test services — never `--network host` or default bridge
 - The valkey cache service uses `tmpfs` — no persistent volume, always starts clean
+- **Container names match production** (`{name}-app`, `{name}-cache`): dev and test never run on a production host, so a clash fails `docker compose up` loudly instead of silently replacing production. Keep the distinct `name: {name}-test` (and `{name}-dev`) project name and network — a shared project name would let compose adopt and replace production's containers instead of failing
 - Network name is explicit so `docker network rm {name}-test` cleans up reliably
 - Never mount `./volumes/` or any project directory path at runtime during tests
 
