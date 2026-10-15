@@ -447,7 +447,7 @@ The project MUST have CI that runs on every push and pull request:
 
 ## One Canonical Release Flow
 
-All release channels (stable, beta, daily) run the identical pipeline skeleton:
+All release channels (stable, beta, devel) run the identical pipeline skeleton:
 
 build → stage assets → `version.txt` → source archive → SBOM → checksum manifests LAST → provenance attestation (only where the platform supports it, e.g. GitHub) → publish
 
@@ -457,7 +457,7 @@ Channels differ ONLY in context, never in steps:
 |---------|---------|------------------------|------------|-----------|
 | Stable | Version tag | Tag is the version | No | Permanent |
 | Beta | Beta branch push | Timestamp-beta tag | Yes | Limited |
-| Daily | Schedule | Rolling `daily` tag, deleted and recreated each run; version = short commit id | Yes | Rolling |
+| Devel | Schedule | Rolling `devel` tag, deleted and recreated each run; version = short commit id | Yes | Rolling |
 
 Never fork the pipeline logic per channel — one skeleton, parameterized by context.
 
