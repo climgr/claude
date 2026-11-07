@@ -9,7 +9,7 @@
 # @@Copyright        :  Copyright: (c) 2026 Jason Hempstead, Casjays Developments
 # @@Created          :  Sunday, August 30, 2026 19:00 EDT
 # @@File             :  enforce-gitcommit-shape.sh
-# @@Description      :  PreToolUse Bash hook: blocks any commit-wrapper invocation not exactly `--dir <path> all` or the documented push-retry form (CLAUDE.md's Commit Workflow).
+# @@Description      :  PreToolUse Bash hook: blocks any commit-wrapper invocation not exactly `--dir <path> all`, `--dir <path> spec` or the documented push-retry form (CLAUDE.md's Commit Workflow).
 # @@Changelog        :  Ignore shell redirections (2>&1, >/dev/null, >> log) after a valid invocation — they were counted as extra args and falsely blocked; decode stdin as UTF-8 with replacement and fail open on any parse exception.
 # @@TODO             :  None
 # @@Other              :  Does not apply to raw git commit/push (governed by zone-git-commit-push.sh instead); the commit wrapper has no zone exception anywhere.
@@ -180,13 +180,14 @@ for sub_cmd in re.split(r"[\n;]|&&|\|\||[|&]", cmd):
     if args == ["push"]:
         continue
 
-    # Only valid invocation: gitcommit --dir <path> all
+    # Valid invocations: gitcommit --dir <path> all | gitcommit --dir <path> spec
+    # (`spec` commits only markdown files: AI.md, SPEC.md, IDEA.md, etc.)
     # {dir} must be an absolute path (CLAUDE.md's Commit Workflow) — a
     # relative --dir value is a disallowed shape, not just a missing arg.
     if (
         len(args) == 3
         and args[0] == "--dir"
-        and args[2] == "all"
+        and args[2] in ("all", "spec")
         and args[1]
         and args[1].startswith("/")
     ):
