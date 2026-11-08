@@ -271,9 +271,9 @@ Docker is **REQUIRED**. The language toolchain MUST NOT run on the host.
 ```text
 docker/
 ├── Dockerfile              # builds the dev/build/test image using official alpine language image
-├── docker-compose.yml      # production/human runtime
-├── docker-compose.dev.yml  # human development only (debug/devel)
-├── docker-compose.test.yml # automated testing
+├── compose.yml      # production/human runtime
+├── compose.dev.yml  # human development only (debug/devel)
+├── compose.test.yml # automated testing
 ├── entrypoint.sh           # sets non-root UID/GID, prepares cache dirs
 └── README.md               # how to build, run tests, run the app
 ```
@@ -525,7 +525,7 @@ Must contain:
 - [ ] `.gitignore` created
 - [ ] `release.txt` created (`0.1.0`)
 - [ ] `docker/Dockerfile` created and builds successfully
-- [ ] `docker/docker-compose.yml`, `docker-compose.dev.yml`, `docker-compose.test.yml` created
+- [ ] `docker/compose.yml`, `compose.dev.yml`, `compose.test.yml` created
 - [ ] `docker/entrypoint.sh` created
 - [ ] `Makefile` created with required targets
 - [ ] CI workflow created

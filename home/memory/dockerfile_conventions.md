@@ -264,7 +264,7 @@ ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
 
 - `tini` is always PID 1 — never use bare binary as entrypoint
 - `ENTRYPOINT` always delegates to `entrypoint.sh` — never bypass (see NEVER rules)
-- Internal port is always 80; host mapping is in `docker-compose.yml`
+- Internal port is always 80; host mapping is in `compose.yml`
 - `docker/rootfs/` mirrors Linux FHS — files placed there are `COPY`'d into the image at `/`
 - `apk add --no-cache` — never without `--no-cache`
 - No secrets, credentials, or `.env` values baked into the image
@@ -279,7 +279,7 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 USER appuser
 ```
 
-If the app must bind to port 80 (or other privileged ports): use `tini` + `setcap` or remap to an unprivileged port (≥1024) inside the container and map externally via `docker-compose.yml`. Exceptions (filesystem mounts, device access, service management) must be documented in `{project_dir}/IDEA.md`.
+If the app must bind to port 80 (or other privileged ports): use `tini` + `setcap` or remap to an unprivileged port (≥1024) inside the container and map externally via `compose.yml`. Exceptions (filesystem mounts, device access, service management) must be documented in `{project_dir}/IDEA.md`.
 
 ## entrypoint.sh
 
@@ -385,19 +385,19 @@ jobs:
 ### File locations
 
 All compose files live in `docker/`:
-- `docker/docker-compose.yml` — production/human runtime
-- `docker/docker-compose.dev.yml` — human development only (debug/devel; never used by AI)
-- `docker/docker-compose.test.yml` — automated testing; AI's preferred interface is the `tests/` scripts, not invoking this file directly (see "AI Docker Compose rules" below)
+- `docker/compose.yml` — production/human runtime
+- `docker/compose.dev.yml` — human development only (debug/devel; never used by AI)
+- `docker/compose.test.yml` — automated testing; AI's preferred interface is the `tests/` scripts, not invoking this file directly (see "AI Docker Compose rules" below)
 
 All three follow the same layout: `name:` → `x-logging` anchor → `services:` → env map → `volumes:` → `ports:` → `healthcheck:` → `depends_on:` → `networks:` → top-level `networks:` block.
 
 **Environment variables always use map style (`KEY: value`), never list style (`- KEY=value`).**
 
-**`172.17.0.1:` bind** is reserved for the http/https port publish and appears only in `docker-compose.test.yml` and `docker-compose.yml` (production-shaped). `docker-compose.dev.yml` never uses it.
+**`172.17.0.1:` bind** is reserved for the http/https port publish and appears only in `compose.test.yml` and `compose.yml` (production-shaped). `compose.dev.yml` never uses it.
 
 **`PORT: 80`** — the container's internal port is always `80`; only the published host-side port varies.
 
-**valkey (cache)** — `docker-compose.test.yml` and `docker-compose.yml` include a valkey cache service; `docker-compose.dev.yml` never does.
+**valkey (cache)** — `compose.test.yml` and `compose.yml` include a valkey cache service; `compose.dev.yml` never does.
 
 ### Volumes — path resolution
 
@@ -405,7 +405,7 @@ Compose files always use `./volumes` for bind-mount paths. `./volumes` is **rela
 
 Both `volumes/` and `docker/volumes/` are gitignored — runtime data is never committed.
 
-### Dev Compose (`docker-compose.dev.yml`)
+### Dev Compose (`compose.dev.yml`)
 
 Human debug/devel only. Uses the `:devel` image (built from `docker/Dockerfile.dev`). `DEBUG` on, `MODE: dev`, no `172.17.0.1:` bind, no valkey.
 
@@ -451,7 +451,7 @@ networks:
     external: false
 ```
 
-### Production Compose (`docker-compose.yml`)
+### Production Compose (`compose.yml`)
 
 No `DEBUG`/`MODE` vars. Uses `172.17.0.1:` bind and valkey.
 
@@ -526,6 +526,7 @@ networks:
 - **Name for the app, not the role** — VMs, containers, and compose project names use the application name: `ci` → `jenkins`, `rpm` → `albs`.
 - **Compose dirs follow the app** — `/srv/root/compose/{app}`, e.g. `/srv/root/compose/stats` → `/srv/root/compose/umami`; the `name:`, network, and volume paths use the same name.
 - **Vhost files are `{fqdn}.conf` with the full extension** — non-wildcard: `ci.casjay.cc.conf`; wildcard (`*.{domain}`, `*.{fqdn}`): `rpm-devel.cc.conf`. Never drop the TLD.
+- **Compose file name is `compose.yml`** — always `compose.yml` (and `compose.dev.yml`, `compose.test.yml`, `compose.traefik.yml`, `compose.tunnel.yml` for variants), never `docker-compose.yml` or `docker-compose.yaml`, on hosts under `/srv/root/compose/{app}/` and in tracked copies
 - **IPv6 networks** — a compose network whose stack publishes ports to the internet sets `enable_ipv6: true` with a unique ULA `ipam` subnet (`fd00:5a:{n}::/64`) so Docker NATs IPv6 with ip6tables and remote clients keep their real address (the userland proxy otherwise shows every IPv6 client as the bridge gateway); the service inside must listen on IPv6 too (MongoDB `--ipv6 --bind_ip_all`, CouchDB `bind_address = ::`)
 - **Admin accounts** — the admin user is `administrator`, with email `administrator@{fqdn}` (or `administrator@{domain}` if the fqdn is not appropriate); `APP_ADMIN_USER` defaults to `administrator`
 - **Vhost directory** — `vhosts.d` if it exists (`/etc/nginx/vhosts.d`, `/etc/httpd/conf/vhosts.d`); otherwise the distro's layout (Debian/Ubuntu nginx: `sites-available/{fqdn}.conf` plus a symlink in `sites-enabled/`).
@@ -536,11 +537,11 @@ For deploying an external service rather than your own built image. **Three sepa
 
 | File | Reverse-proxy mode | Network | Labels | Port publish |
 |---|---|---|---|---|
-| `docker-compose.yaml` | none — plain nginx reverse proxy on the host | `{project_name}` only | none | yes — `172.17.0.1:{port}:{internal_port}` |
-| `docker-compose.traefik.yaml` | traefik | `traefik` (external) | traefik routing labels | no |
-| `docker-compose.tunnel.yaml` | Cloudflare tunnel | `cloudflare` (external) | cloudflare labels | no |
+| `compose.yml` | none — plain nginx reverse proxy on the host | `{project_name}` only | none | yes — `172.17.0.1:{port}:{internal_port}` |
+| `compose.traefik.yml` | traefik | `traefik` (external) | traefik routing labels | no |
+| `compose.tunnel.yml` | Cloudflare tunnel | `cloudflare` (external) | cloudflare labels | no |
 
-**`docker-compose.yaml` is the default and is the one nginx proxies to** — host-port-published, no reverse-proxy labels, no external network. `docker-compose.traefik.yaml` and `docker-compose.tunnel.yaml` swap the app service's networking for their respective proxy and drop the port publish; everything else (image, environment, volumes, DB service if any) stays identical across all three files.
+**`compose.yml` is the default and is the one nginx proxies to** — host-port-published, no reverse-proxy labels, no external network. `compose.traefik.yml` and `compose.tunnel.yml` swap the app service's networking for their respective proxy and drop the port publish; everything else (image, environment, volumes, DB service if any) stays identical across all three files.
 
 ```yaml
 # nginx proxy address - http://172.17.0.1:{port}
@@ -605,7 +606,7 @@ networks:
     external: false
 ```
 
-`docker-compose.traefik.yaml` — same file, app service's `networks`/`ports` replaced:
+`compose.traefik.yml` — same file, app service's `networks`/`ports` replaced:
 
 ```yaml
     networks:
@@ -630,7 +631,7 @@ networks:
     external: true
 ```
 
-`docker-compose.tunnel.yaml` — same file, app service's `networks`/`ports` replaced:
+`compose.tunnel.yml` — same file, app service's `networks`/`ports` replaced:
 
 ```yaml
     networks:
@@ -648,21 +649,21 @@ networks:
 
 Rules:
 - **No `version:` field** — the top-level `version:` key is deprecated and ignored by all current Docker Compose versions; never include it
-- **Three standalone files, never one file with conditional/optional network membership** — `docker-compose.yaml` (default, nginx-proxied via host port publish), `docker-compose.traefik.yaml`, `docker-compose.tunnel.yaml`. A repo only needs the alternates it actually supports — omit `docker-compose.traefik.yaml`/`docker-compose.tunnel.yaml` entirely rather than leaving an empty/unused variant.
+- **Three standalone files, never one file with conditional/optional network membership** — `compose.yml` (default, nginx-proxied via host port publish), `compose.traefik.yml`, `compose.tunnel.yml`. A repo only needs the alternates it actually supports — omit `compose.traefik.yml`/`compose.tunnel.yml` entirely rather than leaving an empty/unused variant.
 - **Spell it `traefik`, never `traefix`** — filename, network name, and every `traefik.*` label key
 - **Network name is always `{project_name}`** (base file) or the bare proxy name `traefik`/`cloudflare` (external, in the alternates) — never `{project_name}-net`, `{project_name}-app`, or any other suffix. The `name:` field under the network must match in the base file.
 - **DB services join only the project network** — never `traefik` or `cloudflare`, in any of the three files
 - **Healthcheck cadence** — `interval: 30s`, `timeout: 10s`, `retries: 3` for all DB services
 - **Postgres 18+ mounts at `/var/lib/postgresql`, never `/var/lib/postgresql/data`** — the 18+ image stores data in a versioned subdirectory (`18/docker`) and refuses a mount at `/data`
 - **Host DB data dir is `chmod 777`** — the image entrypoint drops to the `postgres` user and cannot traverse a root-owned `700` mount source (`mkdir: cannot create directory '/var/lib/postgresql': Permission denied`); applies to `./volumes/data/db/postgres/{project_name}`
-- **Port comment** is the FIRST line of `docker-compose.yaml` only: `# nginx proxy address - http://172.17.0.1:{port}` — nothing above it, not even a description comment. `{port}` must match the actual `ports:` publish on the `app` service exactly (the external/host-side port, not the internal one).
-- **`docker-compose.traefik.yaml`/`docker-compose.tunnel.yaml` never carry this comment** — they don't publish a port, so there's no external port for it to reference
+- **Port comment** is the FIRST line of `compose.yml` only: `# nginx proxy address - http://172.17.0.1:{port}` — nothing above it, not even a description comment. `{port}` must match the actual `ports:` publish on the `app` service exactly (the external/host-side port, not the internal one).
+- **`compose.traefik.yml`/`compose.tunnel.yml` never carry this comment** — they don't publish a port, so there's no external port for it to reference
 - **`pull_policy: always`** on every service — ensures latest image on each `docker compose up`
 - **`restart: always`** on every service
 - **`x-logging` anchor** — apply to all services via `logging: *default-logging`
-- **Only the base `docker-compose.yaml` publishes a port** — `docker-compose.traefik.yaml`/`docker-compose.tunnel.yaml` never carry a `ports:` block on the app service; the proxy owns ingress instead
+- **Only the base `compose.yml` publishes a port** — `compose.traefik.yml`/`compose.tunnel.yml` never carry a `ports:` block on the app service; the proxy owns ingress instead
 
-### Test Compose (`docker-compose.test.yml`)
+### Test Compose (`compose.test.yml`)
 
 Testing the built binary/server. `DEBUG` on, `MODE: dev`, `172.17.0.1:` bind, valkey included.
 
@@ -734,7 +735,7 @@ networks:
 ```
 
 Test Compose rules:
-- AI copies `docker-compose.test.yml` to a temp dir before running — `./volumes` resolves to `{tempdir}/volumes/`
+- AI copies `compose.test.yml` to a temp dir before running — `./volumes` resolves to `{tempdir}/volumes/`
 - Named bridge network for all test services — never `--network host` or default bridge
 - The valkey cache service uses `tmpfs` — no persistent volume, always starts clean
 - **Dev and test use production's names**: container names (`{name}-app`, `{name}-cache`), the compose `name:` and the network are the same in every file, so the three files differ by environment variables only (plus the image tag and port binding). Dev and test never run on a production host: a shared name makes `docker compose up` there adopt and replace production's containers, so never run them on one
@@ -743,10 +744,10 @@ Test Compose rules:
 
 ### AI Docker Compose rules
 
-- **NEVER** run `docker compose up` with `docker-compose.yml` or `docker-compose.dev.yml` — those are human-only
+- **NEVER** run `docker compose up` with `compose.yml` or `compose.dev.yml` — those are human-only
 - **NEVER** mount `./volumes/` or any project-directory path at runtime when testing
-- **`tests/` scripts are AI's preferred interface for testing** — prefer the project's `tests/` directory scripts over invoking `docker-compose.test.yml` directly; those scripts wrap the temp-dir copy/run/cleanup sequence below
-- When a direct compose invocation is unavoidable (e.g. no `tests/` script exists yet): copy `docker/docker-compose.test.yml` to a temp dir and run from there — `./volumes` then resolves to `{tempdir}/volumes/`
+- **`tests/` scripts are AI's preferred interface for testing** — prefer the project's `tests/` directory scripts over invoking `compose.test.yml` directly; those scripts wrap the temp-dir copy/run/cleanup sequence below
+- When a direct compose invocation is unavoidable (e.g. no `tests/` script exists yet): copy `docker/compose.test.yml` to a temp dir and run from there — `./volumes` then resolves to `{tempdir}/volumes/`
 - **NEVER** create or modify files in the project directory during testing
 
 ---
@@ -772,7 +773,7 @@ environment:
 1. Host environment variable or shell export (set before `docker compose up`)
 2. `app.env` — app-specific overrides (KEY=VALUE, no `export`)
 3. `default.env` — global stack defaults (shell script, all vars `export`ed, sourced by composemgr)
-4. Inline `${VAR:-default}` fallback in `docker-compose.yml`
+4. Inline `${VAR:-default}` fallback in `compose.yml`
 5. Dockerfile `ENV` instruction (baked into image — lowest precedence at runtime)
 
 The stack must work at level 4 alone — all inline defaults must be sane enough to start the service without any env file.

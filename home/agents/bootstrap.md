@@ -146,7 +146,7 @@ If the spec requires system integration files (systemd units, polkit rules, D-Bu
 
 Set up the build system the spec prescribes:
 - Create the project layout (source tree, `docker/`, `scripts/`, etc.) per the spec
-- Create `docker/Dockerfile` and any supporting Docker files (`docker-compose.yml`, `Dockerfile.dev`) — Docker is the mandatory build environment
+- Create `docker/Dockerfile` and any supporting Docker files (`compose.yml`, `Dockerfile.dev`) — Docker is the mandatory build environment
 - Apply the spec's binary naming rules and release artifact naming
 - Set up any CI scaffolding the spec references (`.github/workflows/`, etc.)
 - Verify the build works inside Docker and confirm it exits 0. If it fails: diagnose and fix before proceeding. Do not mark this phase complete on a failing build.

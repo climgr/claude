@@ -160,7 +160,7 @@ If the image is not in the registry, do not build it inline — stop and tell th
 - Bind to `172.17.0.1:{random_port}:{internal_port}` (Docker bridge gateway). Never `0.0.0.0`, `localhost`, or `127.0.0.x` — `0.0.0.0` exposes to all interfaces; `127.0.0.x` is host-only and excludes container-to-host reach.
 - Pick the port at runtime using `__random_port`. When the port must survive between runs — save it to the project's config file on first generation and reload on subsequent runs. Use `__save_credential` / `__load_credential` for `KEY=VALUE` stores.
 
-`docker-compose.yml` must work out of the box with zero configuration — every settable value has a sane default as a fallback so a missing or empty `.env` never breaks the stack. Users may override any value via `.env` or environment variables; if a value is unset or misconfigured the default takes over. Never require `.env` to exist, never fail silently on a bad value.
+`compose.yml` must work out of the box with zero configuration — every settable value has a sane default as a fallback so a missing or empty `.env` never breaks the stack. Users may override any value via `.env` or environment variables; if a value is unset or misconfigured the default takes over. Never require `.env` to exist, never fail silently on a bad value.
 
 ## Reverse Proxy
 

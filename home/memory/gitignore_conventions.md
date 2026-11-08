@@ -105,7 +105,7 @@ Add these for projects that use them:
 
 ```gitignore
 # Docker compose local override (auto-loaded by `docker compose`, may contain sensitive data)
-docker-compose.override.yml
+compose.override.yml
 
 # rootfs build directory
 rootfs

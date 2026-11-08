@@ -131,7 +131,7 @@ Placeholders in AI.md (e.g., `{project_name}`, `{PROJECT_ORG}`) are **reference 
 ├── docker/
 │   ├── Dockerfile
 │   ├── Dockerfile.dev
-│   ├── docker-compose.yml
+│   ├── compose.yml
 │   └── rootfs/   # files ADDed into image, mirroring Linux FHS
 │       ├── etc/
 │       └── usr/local/bin/   # entrypoint.sh, etc.

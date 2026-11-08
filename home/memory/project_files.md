@@ -35,7 +35,7 @@ The only exception: report-only files created by AI itself during the current se
 | `SECURITY.md` in root | Belongs in `.github/` (allowed there) |
 | `PULL_REQUEST_TEMPLATE.md` in root | Belongs in `.github/` (allowed there) |
 | `Dockerfile` in root | Belongs in `docker/Dockerfile`. **Exception:** `{project_dir}/Dockerfile*` (e.g. `Dockerfile`, `Dockerfile.build`, `Dockerfile.10-dev`) is allowed at root when the repo has no language-project manifest at root (no `go.mod`, `package.json`, `Cargo.toml`, etc.) — such a repo has no `docker/` convention to conflict with, since the whole repo IS the Docker build context. This holds for any repo shaped that way, not a fixed list of names |
-| `docker-compose.yml` in root | Belongs in `docker/docker-compose.yml`. **Exception:** `{project_dir}/*compose*.y?ml` (e.g. `docker-compose.yml`, `docker-compose.yaml`, `compose.yml`) is allowed at root under the same no-language-manifest exception as `Dockerfile*` above |
+| `compose.yml` in root | Belongs in `docker/compose.yml`. **Exception:** `{project_dir}/*compose*.y?ml` (e.g. `compose.yml`, `compose.dev.yml`) is allowed at root under the same no-language-manifest exception as `Dockerfile*` above |
 | `*.example.*`, `*.sample.*` | No example files — defaults are embedded in the binary. **Exception:** `.env.example`, `.env.sample`, `app.env.example`, `app.env.sample`, `default.env.example`, `default.env.sample` are allowed — they are safe templates for users to copy |
 | `server.yml`, `cli.yml` | Config files are runtime-generated, never in repo |
 | `.env`, `app.env`, `default.env` | Never committed — must always be in `.gitignore`. Use `.env.example` / `.env.sample` variants for committed templates |
@@ -176,7 +176,7 @@ This table covers files Claude actively manages and files with non-obvious place
 
 ---
 
-## 🐳 Docker                ← only if docker/docker-compose.yml exists
+## 🐳 Docker                ← only if docker/compose.yml exists
 
 {docker compose up / pull instructions; image name; env var overrides}
 
@@ -219,7 +219,7 @@ This table covers files Claude actively manages and files with non-obvious place
 - Description paragraph immediately follows the H1 — no section header wrapping it
 - Official site line is present only when `site.txt` exists at the project root; read it and use the URL verbatim
 - `## Install` (or equivalent production section) comes **before** `## Development` — always
-- Conditional sections (`Docker`, `Client CLI`, `Agent`) are included only when the project actually ships that component; detect by checking for `docker/docker-compose.yml` (Docker section) and `docker/Dockerfile` (Docker build subsection); omit entirely if not applicable
+- Conditional sections (`Docker`, `Client CLI`, `Agent`) are included only when the project actually ships that component; detect by checking for `docker/compose.yml` (Docker section) and `docker/Dockerfile` (Docker build subsection); omit entirely if not applicable
 - `## Development` is always the last substantive section, immediately before `## License`
 - `## License` is always the final section — omitted entirely under `~/Projects/local/system/**`, where `LICENSE.md` is not required (see `local_system_zone.md`)
 - Emojis in section headers are appropriate and encouraged; keep them consistent within a file

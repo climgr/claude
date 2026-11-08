@@ -214,7 +214,7 @@ Reading AI.md once during Pre-Flight and then working from memory/impression of 
 - No forbidden files or directories (`~/.claude/memory/project_files.md`) — flag any found; do NOT delete without user confirmation
 - No forbidden directory names in source: plural source dirs (`handlers/`, `models/`) — exception: tooling dirs (`scripts/`, `tests/`, `completions/`, `binaries/`)
 - Dockerfile in `docker/Dockerfile`, not at repo root
-- `docker-compose.yml` in `docker/`, not at repo root
+- `compose.yml` in `docker/`, not at repo root
 - No `.env` files anywhere in repo
 
 ### Project files
@@ -281,7 +281,7 @@ Grep every env var read in the codebase:
 
 For each env var found:
 - Is it documented in `README.md`, `IDEA.md`, or the binary's `--help`?
-- Is it set in `docker-compose.yml` (with a sane default) or documented as required?
+- Is it set in `compose.yml` (with a sane default) or documented as required?
 - Is it used with a default fallback (`os.Getenv("X")` with no check vs `os.LookupEnv("X")` with a missing-key branch)?
 
 Flag: env vars read but not documented; env vars documented but never read; env vars read without a default when one is clearly needed.
@@ -358,7 +358,7 @@ For each issue found:
 | Code does something correct but undocumented in IDEA.md | Update IDEA.md to document it |
 | Wrong call target | Fix the call to use the correct function/method |
 | Ignored return value | Add handling for the ignored error or meaningful return |
-| Undocumented env var | Add it to README/IDEA.md and docker-compose.yml with a default |
+| Undocumented env var | Add it to README/IDEA.md and compose.yml with a default |
 | Dead public API | Unexport the symbol; update all call sites |
 | Visibility too wide | Narrow `pub` → `pub(crate)` or unexported; update callers |
 | Missing input validation | Add type/range/format check at the entry point |
