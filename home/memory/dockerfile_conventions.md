@@ -590,7 +590,7 @@ services:
       POSTGRES_PASSWORD: ${DB_USER_PASS:-changeme_db_password}
       CONTAINER_NAME: {project_name}-db
     volumes:
-      - ./volumes/data/db/postgres/{project_name}:/var/lib/postgresql/data
+      - ./volumes/data/db/postgres/{project_name}:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER_NAME:-{project_name}} -d ${DB_CREATE_DATABASE_NAME:-{project_name}}"]
       interval: 30s
@@ -651,6 +651,8 @@ Rules:
 - **Network name is always `{project_name}`** (base file) or the bare proxy name `traefik`/`cloudflare` (external, in the alternates) — never `{project_name}-net`, `{project_name}-app`, or any other suffix. The `name:` field under the network must match in the base file.
 - **DB services join only the project network** — never `traefik` or `cloudflare`, in any of the three files
 - **Healthcheck cadence** — `interval: 30s`, `timeout: 10s`, `retries: 3` for all DB services
+- **Postgres 18+ mounts at `/var/lib/postgresql`, never `/var/lib/postgresql/data`** — the 18+ image stores data in a versioned subdirectory (`18/docker`) and refuses a mount at `/data`
+- **Host DB data dir is `chmod 777`** — the image entrypoint drops to the `postgres` user and cannot traverse a root-owned `700` mount source (`mkdir: cannot create directory '/var/lib/postgresql': Permission denied`); applies to `./volumes/data/db/postgres/{project_name}`
 - **Port comment** is the FIRST line of `docker-compose.yaml` only: `# nginx proxy address - http://172.17.0.1:{port}` — nothing above it, not even a description comment. `{port}` must match the actual `ports:` publish on the `app` service exactly (the external/host-side port, not the internal one).
 - **`docker-compose.traefik.yaml`/`docker-compose.tunnel.yaml` never carry this comment** — they don't publish a port, so there's no external port for it to reference
 - **`pull_policy: always`** on every service — ensures latest image on each `docker compose up`
