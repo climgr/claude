@@ -521,6 +521,13 @@ networks:
     external: false
 ```
 
+### Deployed instance naming (VMs, containers, compose dirs, vhosts)
+
+- **Name for the app, not the role** — VMs, containers, and compose project names use the application name: `ci` → `jenkins`, `rpm` → `albs`.
+- **Compose dirs follow the app** — `/srv/root/compose/{app}`, e.g. `/srv/root/compose/stats` → `/srv/root/compose/umami`; the `name:`, network, and volume paths use the same name.
+- **Vhost files are `{fqdn}.conf` with the full extension** — non-wildcard: `ci.casjay.cc.conf`; wildcard (`*.{domain}`, `*.{fqdn}`): `rpm-devel.cc.conf`. Never drop the TLD.
+- **Vhost directory** — `vhosts.d` if it exists (`/etc/nginx/vhosts.d`, `/etc/httpd/conf/vhosts.d`); otherwise the distro's layout (Debian/Ubuntu nginx: `sites-available/{fqdn}.conf` plus a symlink in `sites-enabled/`).
+
 ### Deployment Compose (third-party services, e.g. composemgr)
 
 For deploying an external service rather than your own built image. **Three separate, standalone files — never one file with conditional network membership.** Each file is a complete compose stack a user runs on its own; they are deployment-mode alternatives, not layers meant to be combined with `-f`. Reference layout: `composemgr/template`.
