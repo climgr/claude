@@ -526,6 +526,7 @@ networks:
 - **Name for the app, not the role** — VMs, containers, and compose project names use the application name: `ci` → `jenkins`, `rpm` → `albs`.
 - **Compose dirs follow the app** — `/srv/root/compose/{app}`, e.g. `/srv/root/compose/stats` → `/srv/root/compose/umami`; the `name:`, network, and volume paths use the same name.
 - **Vhost files are `{fqdn}.conf` with the full extension** — non-wildcard: `ci.casjay.cc.conf`; wildcard (`*.{domain}`, `*.{fqdn}`): `rpm-devel.cc.conf`. Never drop the TLD.
+- **IPv6 networks** — a compose network whose stack publishes ports to the internet sets `enable_ipv6: true` with a unique ULA `ipam` subnet (`fd00:5a:{n}::/64`) so Docker NATs IPv6 with ip6tables and remote clients keep their real address (the userland proxy otherwise shows every IPv6 client as the bridge gateway); the service inside must listen on IPv6 too (MongoDB `--ipv6 --bind_ip_all`, CouchDB `bind_address = ::`)
 - **Admin accounts** — the admin user is `administrator`, with email `administrator@{fqdn}` (or `administrator@{domain}` if the fqdn is not appropriate); `APP_ADMIN_USER` defaults to `administrator`
 - **Vhost directory** — `vhosts.d` if it exists (`/etc/nginx/vhosts.d`, `/etc/httpd/conf/vhosts.d`); otherwise the distro's layout (Debian/Ubuntu nginx: `sites-available/{fqdn}.conf` plus a symlink in `sites-enabled/`).
 
