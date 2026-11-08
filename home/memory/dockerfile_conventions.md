@@ -526,6 +526,7 @@ networks:
 - **Name for the app, not the role** — VMs, containers, and compose project names use the application name: `ci` → `jenkins`, `rpm` → `albs`.
 - **Compose dirs follow the app** — `/srv/root/compose/{app}`, e.g. `/srv/root/compose/stats` → `/srv/root/compose/umami`; the `name:`, network, and volume paths use the same name.
 - **Vhost files are `{fqdn}.conf` with the full extension** — non-wildcard: `ci.casjay.cc.conf`; wildcard (`*.{domain}`, `*.{fqdn}`): `rpm-devel.cc.conf`. Never drop the TLD.
+- **Admin accounts** — the admin user is `administrator`, with email `administrator@{fqdn}` (or `administrator@{domain}` if the fqdn is not appropriate); `APP_ADMIN_USER` defaults to `administrator`
 - **Vhost directory** — `vhosts.d` if it exists (`/etc/nginx/vhosts.d`, `/etc/httpd/conf/vhosts.d`); otherwise the distro's layout (Debian/Ubuntu nginx: `sites-available/{fqdn}.conf` plus a symlink in `sites-enabled/`).
 
 ### Deployment Compose (third-party services, e.g. composemgr)
