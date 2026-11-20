@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202609170001-git
+##@Version           :  202611200001-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -9,8 +9,8 @@
 # @@Copyright        :  Copyright: (c) 2026 Jason Hempstead, Casjays Developments
 # @@Created          :  Sunday, August 30, 2026 19:00 EDT
 # @@File             :  enforce-gitcommit-shape.sh
-# @@Description      :  PreToolUse Bash hook: blocks any commit-wrapper invocation not exactly `--dir <path> all`, `--dir <path> spec` or the documented push-retry form (CLAUDE.md's Commit Workflow).
-# @@Changelog        :  Ignore shell redirections (2>&1, >/dev/null, >> log) after a valid invocation — they were counted as extra args and falsely blocked; decode stdin as UTF-8 with replacement and fail open on any parse exception.
+# @@Description      :  PreToolUse Bash hook: blocks any commit-wrapper invocation not exactly `--dir <abs-path> all`, `--dir <abs-path> spec` or `--dir <abs-path> push` (CLAUDE.md's Commit Workflow).
+# @@Changelog        :  Accept `--dir <abs-path> push` (bare `push` now blocked) and `spec`; block message lists every valid form and the absolute-path rule. Ignore shell redirections (2>&1, >/dev/null, >> log) after a valid invocation — they were counted as extra args and falsely blocked; decode stdin as UTF-8 with replacement and fail open on any parse exception.
 # @@TODO             :  None
 # @@Other              :  Does not apply to raw git commit/push (governed by zone-git-commit-push.sh instead); the commit wrapper has no zone exception anywhere.
 # @@Resource         :  CLAUDE.md - Commit Workflow
@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202609170001-git"
+VERSION="202611200001-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 set -euo pipefail
 
@@ -175,19 +175,15 @@ for sub_cmd in re.split(r"[\n;]|&&|\|\||[|&]", cmd):
             continue
         args.append(tok)
 
-    # Documented push-retry form: `gitcommit push` (CLAUDE.md Commit Workflow,
-    # "If push fails offline: run `gitcommit push` later").
-    if args == ["push"]:
-        continue
-
-    # Valid invocations: gitcommit --dir <path> all | gitcommit --dir <path> spec
-    # (`spec` commits only markdown files: AI.md, SPEC.md, IDEA.md, etc.)
+    # Valid invocations: gitcommit --dir <path> all | spec | push
+    # (`spec` commits only markdown files: AI.md, SPEC.md, IDEA.md, etc.;
+    # `push` is the push-retry form after an offline push failure)
     # {dir} must be an absolute path (CLAUDE.md's Commit Workflow) — a
     # relative --dir value is a disallowed shape, not just a missing arg.
     if (
         len(args) == 3
         and args[0] == "--dir"
-        and args[2] in ("all", "spec")
+        and args[2] in ("all", "spec", "push")
         and args[1]
         and args[1].startswith("/")
     ):
@@ -202,7 +198,10 @@ msg = (
     "BLOCKED: gitcommit invoked with a disallowed argument shape.\n\n"
     "The only valid invocations (CLAUDE.md's Commit Workflow) are:\n"
     "  gitcommit --dir {project_dir} all\n"
-    "  gitcommit push   (push-retry form, after an offline push failure)\n\n"
+    "  gitcommit --dir {project_dir} spec   (markdown spec files only)\n"
+    "  gitcommit --dir {project_dir} push   (push-retry, after an offline push failure)\n\n"
+    "{project_dir} must be an absolute path (starting with /) - a relative\n"
+    "path or an unexpanded placeholder such as <project> is rejected.\n\n"
     "Never use -m/--message or any other flag - gitcommit reads the commit\n"
     "message from .git/COMMIT_MESS, which must be written and re-read first.\n\n"
     "Violating command(s):\n"

@@ -61,7 +61,7 @@ Write `{dir}/.git/COMMIT_MESS` from `git status --porcelain` + `git diff --stat`
 
 ## Push Behavior
 
-Push is immediate and irreversible. To skip: `touch .no_push` (confirm with user first). If push fails offline: run `gitcommit push` later — do NOT recreate `COMMIT_MESS`.
+Push is immediate and irreversible. To skip: `touch .no_push` (confirm with user first). If push fails offline: run `gitcommit --dir {dir} push` later — do NOT recreate `COMMIT_MESS`.
 
 ## Pre-Commit Gates
 

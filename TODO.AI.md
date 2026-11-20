@@ -189,3 +189,9 @@ out of scope for the task they were found during.
       override absent → still blocks exit 2 as before. This does not fix
       the underlying registration bug (still upstream, item stays open)
       — it is a last-resort user override, not a marker fix.
+
+- [ ] `AI.md` line 292 (Part 6 hook table, `enforce-gitcommit-shape.sh`)
+      still describes the old shapes (`--dir <path> all` or bare
+      `gitcommit push`). The hook now accepts exactly
+      `--dir <abs-path> all|spec|push`; AI.md is read-only during routine
+      work, so update that row when the spec is next edited.

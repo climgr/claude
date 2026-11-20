@@ -147,7 +147,7 @@ Hook scripts in `home/hooks/` run synchronously before or after a matching tool 
 | `no-history-rewrite.sh` | PreToolUse Bash | Blocks `git clean -f*`, `rebase`, `branch -D`, `tag -d`, `filter-repo`/`filter-branch` everywhere |
 | `no-destructive-bypass.sh` | PreToolUse Bash | Re-enforces the `git reset`/`dd`/`shred`/`mkfs*`/`wipefs` deny list against wrapper bypasses |
 | `bash-content-scan.sh` | PreToolUse Bash | Runs the secrets/AI-attribution scans against heredoc and `echo`/`printf` redirect content |
-| `enforce-gitcommit-shape.sh` | PreToolUse Bash | Blocks any `gitcommit` invocation that isn't exactly `--dir <path> all` or `push` |
+| `enforce-gitcommit-shape.sh` | PreToolUse Bash | Blocks any `gitcommit` invocation that isn't exactly `--dir <abs-path> all`, `spec` or `push` |
 | `enforce-test-lint-gate.sh` | PreToolUse Bash | Blocks `gitcommit` unless the test and lint gates ran and passed this session |
 | `enforce-commit-mess-coverage.sh` | PreToolUse Bash | Blocks `gitcommit` when changed files have no matching bullet in `COMMIT_MESS` |
 | `enforce-doc-sync.sh` | PreToolUse Bash | Blocks `gitcommit` unless `COMMIT_MESS` carries an explicit `IDEA.md`/`README.md` status line for whichever of those files exists at the target repo's root |
