@@ -118,9 +118,11 @@ This table covers files Claude actively manages and files with non-obvious place
 | File / Dir | Category | Required | Purpose |
 |------------|----------|:--------:|---------|
 | `AI.md` | Spec | ✓ | Project specification (THE HOW) — readonly template copy |
-| `IDEA.md` | Spec | ✓ | Project description, variables, business logic (THE WHAT) |
+| `IDEA.md` | Spec | ✓ | Project description, variables, business logic (THE WHAT) — non-goals only scope optional capabilities, never relax `AI.md` baseline rules |
 | `SPEC.md` | Spec | | Project-specific rule overrides — only add content when a rule must contradict the template or global default |
 | `CLAUDE.md` | Spec | ✓ | Short loader — points at `AI.md` and `IDEA.md` |
+| `AGENTS.md` | Spec | ✓ | Exact real-file copy of `CLAUDE.md`, kept in sync, never a symlink |
+| `CLAUDE.local.md` | AI tool | | Personal Claude Code notes — gitignored, never committed |
 | `README.md` | Docs | ✓ | Public documentation |
 | `LICENSE.md` | Docs | ✓ | Project license + third-party attributions — not required under `~/Projects/local/system/**` (see `local_system_zone.md`) |
 | `CHANGELOG.md` | Docs | | Release history — allowed at any path (root, `.github/`, etc.) |
@@ -140,6 +142,14 @@ This table covers files Claude actively manages and files with non-obvious place
 | `.aiderignore` | AI tool | | Aider ignore rules — committed |
 | `.cursorrules` | AI tool | | Cursor rules — committed |
 | `.editorconfig` | Tool config | | Editor formatting rules — settings must match the project's existing style |
+| `.dockerignore` | Tool config | ✓ | Docker ignore rules |
+| `Jenkinsfile` | CI/CD | ✓ | Jenkins pipeline — required on every project |
+| `.gitlab-ci.yml` | CI/CD | ✓ | GitLab CI pipeline — required on every project |
+| `renovate.json` | CI/CD | ✓ | Renovate config covering every ecosystem the project uses |
+| `.trivyignore` | CI/CD | | Trivy ignore list — one finding per line, each with a comment naming the reviewed reason |
+| `mkdocs.yml` | Docs | ✓ | MkDocs configuration |
+| `.readthedocs.yaml` | Docs | ✓ | ReadTheDocs configuration |
+| `.github/trufflehog-exclude.txt` | CI/CD | | Committed truffleHog exclude list — one regex per line, no comments, only files the project does not author (lockfiles, `AI.md`); no root truffleHog config — the allowlist is the inline `trufflehog:ignore` comment |
 | `.no_push` | Flag file | | Signals `gitcommit` to commit locally without pushing — gitignored, never committed |
 | `.no_git` | Flag file | | Signals tooling to skip git operations entirely — gitignored, never committed |
 | `.installed` | Flag file | | Marks a project as installed on this machine — gitignored, never committed |

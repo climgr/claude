@@ -107,6 +107,8 @@ API_KEY=sk-abc123def456ghi789
 
 Never use real-looking tokens, real hostnames, or real-format secrets (e.g. a 40-char hex string that looks like a GitHub token) as example values.
 
+`AI.md`, `IDEA.md`, `README.md` and `docs/` never contain credential-shaped strings; connection strings use `{user}:{password}` placeholders. A flagged example is rewritten, not allowlisted. True false positives in project code or test fixtures use the inline `trufflehog:ignore` comment (see the `cicd_conventions.md` secret-scan row).
+
 ## Pre-flight Before Sharing
 
 Before posting to any destination above:

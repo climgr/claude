@@ -47,7 +47,7 @@ find "{project_dir}/src" -path "*middleware*" -o -path "*auth*" 2>/dev/null | he
 grep -rn -- '"/api/v' "{project_dir}/src" 2>/dev/null | head -5
 
 # Admin path in use (look at existing routes)
-grep -rn -- '"/{admin_path}\|"/server/admin\|"/admin' \
+grep -rn -- '"/{admin_path}\|"/server/administration\|"/administration' \
     "{project_dir}/src" 2>/dev/null | head -5
 ```
 
@@ -61,7 +61,7 @@ From this, determine:
 - `LAYOUT_FILE` — base layout template path (e.g. `layouts/public.html`)
 - `CONFIG_MOD` — module path of the config struct (e.g. `src/config/mod.rs`)
 - `API_VERSION` — default `v1` if not found
-- `ADMIN_PATH` — default `admin` if not found
+- `ADMIN_PATH` — default `administration` if not found (`admin` is a reserved name, never the default)
 
 If `{project_dir}/IDEA.md` exists, read it for `{project_name}`, `{fqdn}`, `{data_dir}`, `{db_dir}`, and any already-set feature flags (`multi_user`, `organizations`, `custom_domains`). If it does not exist, infer from `Cargo.toml` and directory names.
 
@@ -152,23 +152,32 @@ CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires  ON admin_sessions(expires
 ### Tables for Feature 2 (API tokens)
 
 ```sql
-CREATE TABLE IF NOT EXISTS api_tokens (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    owner_type  TEXT NOT NULL CHECK(owner_type IN ('admin','user')),
-    owner_id    INTEGER NOT NULL,
+Unified `tokens` table (SERVER.md PART 11): one table for admin, user, org and agent
+tokens. In a remote DB the cluster name is `usr_tokens`. Timestamps stay unix
+INTEGER like every other table in this file. Revoking a token deletes its row —
+there is no `revoked` column.
+
+```sql
+CREATE TABLE IF NOT EXISTS tokens (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_type    TEXT NOT NULL CHECK(owner_type IN ('admin','user','org')),
+    owner_id      INTEGER NOT NULL,
+    -- User-provided label: "default", "ci-cd"
+    name          TEXT NOT NULL,
     -- SHA-256 hex of raw token
-    token_hash  TEXT UNIQUE NOT NULL,
-    name        TEXT NOT NULL,
-    -- JSON array of strings
-    scopes      TEXT NOT NULL DEFAULT '[]',
-    created_at  INTEGER NOT NULL,
-    -- NULL = never
-    expires_at  INTEGER,
-    last_used   INTEGER,
-    revoked     INTEGER NOT NULL DEFAULT 0
+    token_hash    TEXT NOT NULL,
+    -- First 8 chars of the raw token, display only: "adm_a1b2"
+    token_prefix  TEXT NOT NULL,
+    scope         TEXT NOT NULL DEFAULT 'global' CHECK(scope IN ('global','read-write','read')),
+    -- NULL = never expires
+    expires_at    INTEGER,
+    last_used_at  INTEGER,
+    created_at    INTEGER NOT NULL,
+    -- One token per name per owner
+    UNIQUE(owner_type, owner_id, name)
 );
-CREATE INDEX IF NOT EXISTS idx_api_tokens_owner ON api_tokens(owner_type, owner_id);
-CREATE INDEX IF NOT EXISTS idx_api_tokens_hash  ON api_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_tokens_hash  ON tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_tokens_owner ON tokens(owner_type, owner_id);
 ```
 
 ### Tables for Feature 3 (user accounts)
@@ -391,13 +400,33 @@ pub fn new_session_id() -> Result<String, AuthError> {
     Ok(hex::encode(b))
 }
 
-// new_token_raw generates a raw API token with the given prefix and its SHA-256 hash.
-// Store only the hash. Display the raw token once.
+const BASE62: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+// random_base62 returns n uniformly random alphanumeric characters. Bytes >= 248
+// (62 * 4) are rejected so the modulo introduces no bias.
+fn random_base62(n: usize) -> Result<String, AuthError> {
+    let mut out = String::with_capacity(n);
+    let mut buf = [0u8; 64];
+    while out.len() < n {
+        OsRng.try_fill_bytes(&mut buf).map_err(|e| AuthError::Rand(e.to_string()))?;
+        for &b in buf.iter() {
+            if b < 248 {
+                out.push(BASE62[(b % 62) as usize] as char);
+                if out.len() == n {
+                    break;
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
+// new_token_raw generates a raw token `{prefix}{32 alphanumeric}` and its SHA-256 hash.
+// `prefix` INCLUDES its trailing underscore: one of the TOKEN_PREFIX_* constants
+// (`adm_`, `usr_`, `org_`, `adm_agt_`, `usr_agt_`, `org_agt_`) or a one-shot link-token
+// prefix such as `inv_`. Store only the hash. Display the raw token once.
 pub fn new_token_raw(prefix: &str) -> Result<(String, String), AuthError> {
-    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-    let mut b = [0u8; 32];
-    OsRng.try_fill_bytes(&mut b).map_err(|e| AuthError::Rand(e.to_string()))?;
-    let raw = format!("{prefix}{}", URL_SAFE_NO_PAD.encode(b));
+    let raw = format!("{prefix}{}", random_base62(32)?);
     let hash = hash_token(&raw);
     Ok((raw, hash))
 }
@@ -463,6 +492,109 @@ pub fn validate_totp(secret: &str, code: &str) -> bool {
 }
 ```
 
+### `src/models/reserved.rs` — reserved names
+
+One check shared by every name validator (usernames, org slugs, admin usernames). The
+list is SERVER.md's Reserved Names list; it is never loosened by configuration and is
+extended only by names the project's `IDEA.md` declares. It runs BEFORE any collision
+lookup, on the NFKC-normalized lowercase name, and a reserved name is reported to the
+client exactly like a taken name (see `username_invalid` in Step 8). Add the
+`unicode-normalization` crate to `Cargo.toml`.
+
+```rust
+use std::collections::HashSet;
+
+use once_cell::sync::Lazy;
+use unicode_normalization::UnicodeNormalization;
+
+// Privileged names also match when followed by digits (admin1, root2).
+const PRIVILEGED_NAMES: &[&str] = &[
+    "admin", "administrator", "administration", "root", "superuser", "sysadmin", "sysop", "system",
+    "sys", "operator", "owner", "staff", "moderator", "mod", "manager", "management", "manage",
+    "console", "panel", "cpanel", "backend", "config", "configuration", "wp-admin", "wp-login",
+    "phpmyadmin", "adminer", "webmaster", "postmaster", "hostmaster", "abuse", "noreply",
+    "no-reply", "bot", "bots", "anonymous", "guest", "everyone", "nobody", "me", "self", "www",
+    "mail", "ftp", "smtp", "imap", "pop", "ns", "ns1", "ns2", "localhost",
+];
+
+// Project-specific names go at the end — only those declared in IDEA.md.
+const RESERVED_NAMES: &[&str] = &[
+    "api", "server", "static", "assets", "healthz", "health", "status", "metrics", "version",
+    "webhook", "webhooks", "internal", "private", "public", "well-known", "cgi-bin", "tmp", "temp",
+    "backup", "backups", "debug", "test", "dev", "staging", "null", "undefined", "nil", "true",
+    "false", "default", "index", "home", "main",
+    "login", "logout", "register", "signup", "signin", "signout", "auth", "oauth", "callback",
+    "account", "accounts", "profile", "settings", "dashboard", "user", "users", "org", "orgs",
+    "organization", "organizations", "team", "teams", "group", "groups", "password", "reset",
+    "verify", "invite", "invites", "preferences",
+    "search", "explore", "discover", "trending", "help", "support", "docs", "documentation",
+    "about", "contact", "terms", "privacy", "legal", "security", "info", "new", "edit", "delete",
+    "create", "update", "all", "download", "downloads", "upload", "billing", "sales", "hello",
+    "graphql", "mcp", "swagger", "rest", "rpc", "ws", "websocket", "cdn", "media", "uploads",
+    "files", "images", "css", "js", "fonts", "img",
+    ".well-known", "robots.txt", "sitemap.xml", "feed.xml", "rss.xml", "atom.xml", "favicon.ico",
+    "manifest.json", "humans.txt", "security.txt", "llms.txt", "ads.txt", "feed", "rss", "atom",
+    "sitemap", "robots", "favicon", "manifest", "browserconfig.xml", "sw.js", "service-worker.js",
+];
+
+const RESERVED_EXTENSIONS: &[&str] = &[
+    ".xml", ".txt", ".json", ".ico", ".html", ".htm", ".php", ".js", ".css", ".map",
+    ".webmanifest", ".png", ".jpg", ".svg", ".zip",
+];
+
+static RESERVED_SET: Lazy<HashSet<&'static str>> = Lazy::new(|| {
+    RESERVED_NAMES.iter().chain(PRIVILEGED_NAMES.iter()).copied().collect()
+});
+static PRIVILEGED_SET: Lazy<HashSet<&'static str>> =
+    Lazy::new(|| PRIVILEGED_NAMES.iter().copied().collect());
+
+// is_reserved_name reports whether name is reserved: it equals a listed name, begins with
+// "." or "_", ends with a file extension, or is a privileged name followed by digits.
+pub fn is_reserved_name(name: &str) -> bool {
+    let n: String = name.nfkc().collect::<String>().trim().to_lowercase();
+    if n.is_empty() {
+        return false;
+    }
+    if n.starts_with('.') || n.starts_with('_') {
+        return true;
+    }
+    if RESERVED_SET.contains(n.as_str()) {
+        return true;
+    }
+    if RESERVED_EXTENSIONS.iter().any(|ext| n.ends_with(ext)) {
+        return true;
+    }
+    let base = n.trim_end_matches(|c: char| c.is_ascii_digit());
+    base.len() != n.len() && PRIVILEGED_SET.contains(base)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_reserved_name;
+
+    #[test]
+    fn reserved_name_matching() {
+        for (input, want) in [
+            ("api", true),
+            ("admin", true),
+            ("Admin", true),
+            (" root ", true),
+            ("admin1", true),
+            ("root42", true),
+            (".hidden", true),
+            ("_private", true),
+            ("notes.json", true),
+            ("\u{ff41}\u{ff44}\u{ff4d}\u{ff49}\u{ff4e}", true),
+            ("alice", false),
+            ("alice1", false),
+            ("", false),
+        ] {
+            assert_eq!(is_reserved_name(input), want, "is_reserved_name({input:?})");
+        }
+    }
+}
+```
+
 ### `src/models/admin.rs`
 
 ```rust
@@ -481,6 +613,9 @@ pub enum ValidationError {
     InvalidUsername,
     #[error("invalid email address")]
     InvalidEmail,
+    // Reserved names are reported to the client exactly like taken names.
+    #[error("name is reserved")]
+    Reserved,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -516,7 +651,19 @@ impl AdminSession {
     }
 }
 
-pub fn validate_admin_username(u: &str) -> Result<(), ValidationError> {
+// validate_admin_username checks an admin username. It must not be reserved and must not
+// equal any section name under /server/{admin_path}/ — `admin_root_paths` is the project's
+// `valid_admin_root_paths` set. Run it when an admin is created (setup, invite,
+// external-identity first login) and whenever a username changes.
+pub fn validate_admin_username(u: &str, admin_root_paths: &[&str]) -> Result<(), ValidationError> {
+    use unicode_normalization::UnicodeNormalization;
+    if crate::models::reserved::is_reserved_name(u) {
+        return Err(ValidationError::Reserved);
+    }
+    let n: String = u.nfkc().collect::<String>().trim().to_lowercase();
+    if admin_root_paths.iter().any(|p| p.to_lowercase() == n) {
+        return Err(ValidationError::Reserved);
+    }
     if !ADMIN_USERNAME_RE.is_match(u) {
         return Err(ValidationError::InvalidUsername);
     }
@@ -529,6 +676,20 @@ pub fn validate_admin_email(e: &str) -> Result<(), ValidationError> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{validate_admin_username, ValidationError};
+
+    #[test]
+    fn admin_username_rejects_reserved_names_and_admin_sections() {
+        let sections = ["security", "Settings", "ops-console"];
+        assert!(matches!(validate_admin_username("login", &sections), Err(ValidationError::Reserved)));
+        assert!(matches!(validate_admin_username("ops-console", &sections), Err(ValidationError::Reserved)));
+        assert!(matches!(validate_admin_username("OPS-CONSOLE", &sections), Err(ValidationError::Reserved)));
+        assert!(validate_admin_username("maria", &sections).is_ok());
+    }
+}
 ```
 
 ### `src/models/token.rs`
@@ -537,30 +698,77 @@ pub fn validate_admin_email(e: &str) -> Result<(), ValidationError> {
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
+// Token format is `{prefix}{32 alphanumeric}`; agent tokens carry the owner prefix plus `agt_`.
 pub const TOKEN_PREFIX_ADMIN: &str = "adm_";
 pub const TOKEN_PREFIX_USER: &str = "usr_";
+pub const TOKEN_PREFIX_ORG: &str = "org_";
+pub const TOKEN_PREFIX_ADMIN_AGENT: &str = "adm_agt_";
+pub const TOKEN_PREFIX_USER_AGENT: &str = "usr_agt_";
+pub const TOKEN_PREFIX_ORG_AGENT: &str = "org_agt_";
 
+pub const TOKEN_SCOPE_GLOBAL: &str = "global";
+pub const TOKEN_SCOPE_READ_WRITE: &str = "read-write";
+pub const TOKEN_SCOPE_READ: &str = "read";
+
+// Token maps the unified `tokens` table.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct ApiToken {
+pub struct Token {
     pub id: i64,
-    // "admin" | "user"
+    // "admin" | "user" | "org"
     pub owner_type: String,
     pub owner_id: i64,
+    pub name: String,
     // SHA-256 hex — never the raw token
     #[serde(skip_serializing)]
     pub token_hash: String,
-    pub name: String,
-    // JSON array e.g. ["read","write"]
-    pub scopes: String,
-    pub created_at: i64,
+    // First 8 chars of the raw token, display only
+    pub token_prefix: String,
+    // "global" | "read-write" | "read"
+    pub scope: String,
     pub expires_at: Option<i64>,
-    pub last_used: Option<i64>,
-    pub revoked: bool,
+    pub last_used_at: Option<i64>,
+    pub created_at: i64,
 }
 
-impl ApiToken {
+impl Token {
     pub fn expired(&self, now: i64) -> bool {
         matches!(self.expires_at, Some(exp) if now > exp)
+    }
+}
+
+pub fn valid_token_scope(s: &str) -> bool {
+    matches!(s, TOKEN_SCOPE_GLOBAL | TOKEN_SCOPE_READ_WRITE | TOKEN_SCOPE_READ)
+}
+
+// scope_allows reports whether a token holding `have` may perform an action that needs
+// `need` ("read" or "write"): global and read-write allow both, read allows read only.
+pub fn scope_allows(have: &str, need: &str) -> bool {
+    match have {
+        TOKEN_SCOPE_GLOBAL | TOKEN_SCOPE_READ_WRITE => need == "read" || need == "write",
+        TOKEN_SCOPE_READ => need == "read",
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{scope_allows, valid_token_scope};
+
+    #[test]
+    fn scope_matrix() {
+        for (have, need, want) in [
+            ("global", "write", true),
+            ("global", "read", true),
+            ("read-write", "write", true),
+            ("read-write", "read", true),
+            ("read", "read", true),
+            ("read", "write", false),
+            ("", "read", false),
+            ("writer", "write", false),
+        ] {
+            assert_eq!(scope_allows(have, need), want, "scope_allows({have:?}, {need:?})");
+        }
+        assert!(valid_token_scope("read-write") && !valid_token_scope("admin"));
     }
 }
 ```
@@ -589,6 +797,9 @@ pub enum ValidationError {
     PasswordTooShort,
     #[error("password cannot start or end with whitespace")]
     PasswordWhitespace,
+    // Reserved names are reported to the client exactly like taken names.
+    #[error("name is reserved")]
+    Reserved,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -672,6 +883,9 @@ impl UserInvite {
 }
 
 pub fn validate_username(u: &str) -> Result<(), ValidationError> {
+    if crate::models::reserved::is_reserved_name(u) {
+        return Err(ValidationError::Reserved);
+    }
     if !USER_USERNAME_RE.is_match(u) {
         return Err(ValidationError::InvalidUsername);
     }
@@ -719,6 +933,9 @@ pub enum ValidationError {
     InvalidFormat,
     #[error("slug cannot contain consecutive hyphens")]
     ConsecutiveHyphens,
+    // Reserved names are reported to the client exactly like taken names.
+    #[error("name is reserved")]
+    Reserved,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -759,6 +976,9 @@ pub struct OrgInvite {
 
 pub fn validate_org_slug(slug: &str) -> Result<(), ValidationError> {
     let slug = slug.trim().to_lowercase();
+    if crate::models::reserved::is_reserved_name(&slug) {
+        return Err(ValidationError::Reserved);
+    }
     if slug.len() < 2 || slug.len() > 39 {
         return Err(ValidationError::InvalidLength);
     }
@@ -844,6 +1064,7 @@ use serde_json::json;
 use std::sync::Arc;
 
 use crate::models::auth::hash_token;
+use crate::models::token::scope_allows;
 
 // Values inserted into request extensions by the auth middlewares.
 #[derive(Debug, Clone)]
@@ -851,9 +1072,12 @@ pub struct AdminId(pub i64);
 #[derive(Debug, Clone)]
 pub struct UserId(pub i64);
 #[derive(Debug, Clone)]
+pub struct OrgId(pub i64);
+#[derive(Debug, Clone)]
 pub struct TokenContext {
     pub token_id: i64,
-    pub scopes: String,
+    // "global" | "read-write" | "read"
+    pub scope: String,
     pub owner_type: String,
 }
 
@@ -863,6 +1087,48 @@ fn unauthorized(message: &str) -> Response {
         axum::Json(json!({"ok": false, "error": "UNAUTHORIZED", "message": message})),
     )
         .into_response()
+}
+
+// bearer_challenge builds the RFC 6750 §3 WWW-Authenticate value. `error` is None (no
+// credential presented), "invalid_token" or "insufficient_scope"; an empty realm omits it.
+fn bearer_challenge(realm: &str, error: Option<&str>) -> String {
+    let mut parts = Vec::new();
+    if !realm.is_empty() {
+        parts.push(format!("realm=\"{realm}\""));
+    }
+    if let Some(e) = error {
+        parts.push(format!("error=\"{e}\""));
+    }
+    if parts.is_empty() {
+        "Bearer".to_string()
+    } else {
+        format!("Bearer {}", parts.join(", "))
+    }
+}
+
+// with_challenge attaches the WWW-Authenticate header to a 401/403 response.
+fn with_challenge(mut res: Response, challenge: String) -> Response {
+    if let Ok(v) = axum::http::HeaderValue::from_str(&challenge) {
+        res.headers_mut().insert(axum::http::header::WWW_AUTHENTICATE, v);
+    }
+    res
+}
+
+// bearer_token returns the token from `Authorization: Bearer {token}`. Bearer is the ONLY
+// accepted form: X-API-Key, API-Key, X-Auth-Token, X-Access-Token, X-Token, Token, Basic,
+// Digest and a `?token=` query parameter are never read, so such a request is anonymous.
+// The scheme match is case-insensitive (RFC 7235).
+fn bearer_token(req: &Request<Body>) -> Option<String> {
+    let v = req.headers().get(axum::http::header::AUTHORIZATION)?.to_str().ok()?;
+    if v.len() < 8 || !v.as_bytes()[..7].eq_ignore_ascii_case(b"Bearer ") {
+        return None;
+    }
+    let t = v[7..].trim();
+    if t.is_empty() {
+        None
+    } else {
+        Some(t.to_string())
+    }
 }
 
 fn forbidden(message: &str) -> Response {
@@ -951,61 +1217,76 @@ pub async fn load_user(
     next.run(req).await
 }
 
-// require_token validates a Bearer token. Sets admin or user ID + scopes in context.
+// require_token validates the Bearer token and sets the owner ID (AdminId, UserId or OrgId)
+// plus TokenContext in the request extensions. The realm is `state.cfg.server.name`
+// ({project_name}). A missing token is 401 with `WWW-Authenticate: Bearer realm="{project_name}"`;
+// an invalid or expired token adds `error="invalid_token"`. A revoked token has no row
+// (revoking deletes it), so it is "invalid" too. No response echoes the Authorization value.
 pub async fn require_token(
     State(state): State<Arc<crate::state::AppState>>,
     mut req: Request<Body>,
     next: Next,
 ) -> Response {
-    let raw = req
-        .headers()
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .unwrap_or("")
-        .to_string();
-    if raw.is_empty() {
-        return unauthorized("Authentication required");
-    }
+    let realm = state.cfg.server.name.clone();
+    let Some(raw) = bearer_token(&req) else {
+        return with_challenge(
+            unauthorized("Authentication required"),
+            bearer_challenge(&realm, None),
+        );
+    };
     let hash = hash_token(&raw);
     let now = chrono::Utc::now().timestamp();
-    match state.db.get_api_token(&hash).await {
-        Ok(Some(token)) if !token.revoked && !token.expired(now) => {
+    match state.db.get_token(&hash).await {
+        Ok(Some(token)) if !token.expired(now) => {
             let token_id = token.id;
             let db = state.db.clone();
             tokio::spawn(async move {
-                let _ = db.touch_api_token(token_id).await;
+                let _ = db.touch_token(token_id).await;
             });
             req.extensions_mut().insert(TokenContext {
                 token_id: token.id,
-                scopes: token.scopes.clone(),
+                scope: token.scope.clone(),
                 owner_type: token.owner_type.clone(),
             });
-            if token.owner_type == "admin" {
-                req.extensions_mut().insert(AdminId(token.owner_id));
-            } else {
-                req.extensions_mut().insert(UserId(token.owner_id));
+            match token.owner_type.as_str() {
+                "admin" => {
+                    req.extensions_mut().insert(AdminId(token.owner_id));
+                }
+                "org" => {
+                    req.extensions_mut().insert(OrgId(token.owner_id));
+                }
+                _ => {
+                    req.extensions_mut().insert(UserId(token.owner_id));
+                }
             }
             next.run(req).await
         }
-        _ => unauthorized("Invalid or revoked token"),
+        _ => with_challenge(
+            unauthorized("Invalid or expired token"),
+            bearer_challenge(&realm, Some("invalid_token")),
+        ),
     }
 }
 
-// require_scope returns middleware that checks the token in context has the required scope.
+// require_scope returns middleware that checks the token in context may perform an action
+// needing `scope` ("read" or "write"): global and read-write allow both, read allows read only.
+// A valid token without the scope is 403 with `WWW-Authenticate: Bearer error="insufficient_scope"`.
 pub fn require_scope(
     scope: &'static str,
 ) -> impl Fn(Request<Body>, Next) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send>>
        + Clone {
     move |req: Request<Body>, next: Next| {
         Box::pin(async move {
-            let has_scope = req
+            let allowed = req
                 .extensions()
                 .get::<TokenContext>()
-                .map(|ctx| ctx.scopes.contains(&format!("\"{scope}\"")))
+                .map(|ctx| scope_allows(&ctx.scope, scope))
                 .unwrap_or(false);
-            if !has_scope {
-                return forbidden("Insufficient scope");
+            if !allowed {
+                return with_challenge(
+                    forbidden("Insufficient scope"),
+                    bearer_challenge("", Some("insufficient_scope")),
+                );
             }
             next.run(req).await
         })
@@ -1096,8 +1377,10 @@ pub trait AuthDb: Send + Sync {
     async fn touch_admin_session(&self, id: &str) -> sqlx::Result<()>;
     async fn get_user_session(&self, id: &str) -> sqlx::Result<Option<crate::models::user::UserSession>>;
     async fn touch_user_session(&self, id: &str) -> sqlx::Result<()>;
-    async fn get_api_token(&self, hash: &str) -> sqlx::Result<Option<crate::models::token::ApiToken>>;
-    async fn touch_api_token(&self, id: i64) -> sqlx::Result<()>;
+    // get_token looks a token up by SHA-256 hash.
+    async fn get_token(&self, hash: &str) -> sqlx::Result<Option<crate::models::token::Token>>;
+    // touch_token sets last_used_at to now.
+    async fn touch_token(&self, id: i64) -> sqlx::Result<()>;
 }
 ```
 
@@ -1210,16 +1493,15 @@ Rate limit defaults — baked in as constants, configurable via server config:
 
 | Endpoint | Max | Window |
 |----------|-----|--------|
-| `auth.admin_login` | 5 | 900s (15 min) |
-| `auth.user_login` | 5 | 900s (15 min) |
-| `auth.register` | 5 | 3600s (1 hr) |
-| `auth.password_reset_request` | 3 | 3600s (1 hr) |
-| `auth.password_reset_confirm` | 5 | 3600s (1 hr) |
-| `auth.email_verify` | 5 | 3600s (1 hr) |
+| `server.auth.login` (shared admin + user form) | 5 | 900s (15 min) |
+| `server.auth.register` | 5 | 3600s (1 hr) |
+| `server.auth.password.forgot` | 3 | 3600s (1 hr) |
+| `server.auth.password.reset` | 5 | 3600s (1 hr) |
+| `server.auth.verify` | 5 | 3600s (1 hr) |
 | `auth.totp_verify` | 10 | 300s (5 min) |
 | `auth.password_change` | 3 | 3600s (1 hr) |
 | `auth.invite_create` | 20 | 3600s (1 hr) |
-| `auth.invite_accept` | 10 | 3600s (1 hr) |
+| `server.auth.invite.user` | 10 | 3600s (1 hr) |
 | `api.read` (GET/HEAD) | 120 | 60s |
 | `api.write` (POST/PUT/PATCH/DELETE) | 10 | 60s |
 | `api.health` | 120 | 60s |
@@ -1351,90 +1633,142 @@ pub fn user_agent(headers: &HeaderMap) -> String {
 
 ### Feature 1 — Admin auth handler (`src/handlers/admin_auth.rs`)
 
-Routes: `POST /server/{admin_path}/auth/login` · `POST /server/{admin_path}/auth/logout` · `GET /server/{admin_path}/auth/session` · `POST /server/{admin_path}/auth/password/change` · `POST /server/{admin_path}/auth/totp/enable` · `POST /server/{admin_path}/auth/totp/confirm` · `POST /server/{admin_path}/auth/totp/disable`.
+Routes: `GET|POST /server/auth/login` (rate limit key `server.auth.login`, 5/900s) and `GET|POST /server/auth/logout` are SHARED by admins and users (the `login` and `logout` handlers below serve both); API mirrors are `POST /api/{api_version}/server/auth/login` and `POST /api/{api_version}/server/auth/logout`. There is NO separate admin login route and no `admin_login.html`: `GET /server/{admin_path}` redirects an unauthenticated request to `/server/auth/login`. The admin-only routes stay under the admin panel: `GET /server/{admin_path}/auth/session` · `POST /server/{admin_path}/auth/password/change` · `POST /server/{admin_path}/auth/totp/enable` · `POST /server/{admin_path}/auth/totp/confirm` · `POST /server/{admin_path}/auth/totp/disable`.
 
-Rate limits applied at the router: `auth.admin_login` (5/900s) on `login`, `auth.password_change` (3/3600s) on `change_password`, `auth.totp_verify` (10/300s) on `confirm_totp`.
+Rate limits applied at the router: `server.auth.login` (5/900s) on `login`, `auth.password_change` (3/3600s) on `change_password`, `auth.totp_verify` (10/300s) on `confirm_totp`.
 
 ```rust
 use axum::{
-    extract::{ConnectInfo, State},
+    extract::{ConnectInfo, Query, State},
     http::{HeaderMap, StatusCode},
     response::Response,
     Extension, Json,
 };
 use serde::Deserialize;
 use serde_json::json;
-use std::{net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use crate::handlers::response::{
     cleared_cookie, cookie_value, err, ok, ok_empty, request_ip, server_error, session_cookie,
     set_cookie, user_agent,
 };
+use crate::handlers::user_auth::start_user_session;
 use crate::middlewares::auth::AdminId;
-use crate::models::admin::AdminSession;
+use crate::models::admin::{Admin, AdminSession};
 use crate::models::auth::{
     check_password, dummy_password_hash, hash_password, new_session_id, new_totp_secret,
     validate_totp,
 };
-use crate::models::user::validate_password;
+use crate::models::user::{validate_password, User};
 use crate::state::AppState;
 
 // Identical text for every credential failure — never distinguish
-// "no such admin" from "wrong password".
+// "no such account" from "wrong password".
 const INVALID_CREDENTIALS: &str = "Invalid credentials";
 
-// The admin session cookie is scoped to the admin mount point only.
-fn admin_cookie_path(state: &AppState) -> String {
-    format!("/server/{}", state.cfg.server.admin_path)
+// The admin session cookie is scoped to /server: it must reach the panel at
+// /server/{admin_path} AND the shared /server/auth/logout route.
+fn admin_cookie_path(_state: &AppState) -> String {
+    "/server".to_string()
 }
 
 #[derive(Debug, Deserialize)]
 pub struct LoginRequest {
+    // Username or email. `username` is accepted as an alias for `login`.
+    #[serde(default)]
+    pub login: String,
+    #[serde(default)]
     pub username: String,
+    #[serde(default)]
     pub password: String,
+    // Only read for admin accounts with two-factor enabled.
     #[serde(default)]
     pub totp_code: String,
 }
 
-// POST /server/{admin_path}/auth/login
+// safe_redirect accepts only a same-site absolute path ("/x", never "//host" or "/\\host").
+fn safe_redirect(target: Option<&String>, fallback: &str) -> String {
+    match target {
+        Some(t) if t.starts_with('/') && !t.starts_with("//") && !t.contains('\\') => t.clone(),
+        _ => fallback.to_string(),
+    }
+}
+
+// POST /server/auth/login and POST /api/{api_version}/server/auth/login — the single login
+// for Server Admins and regular users. The `admins` table is checked first, then `users`
+// (drop the user branch if Feature 3 is not built). Both password hashes are always
+// verified so "no such account", "wrong password" and "account type" never differ in
+// timing or in the response. On success admins are sent to `/server/{admin_path}` and users
+// to `/users` (or a same-site `?redirect=` path).
 pub async fn login(
     State(state): State<Arc<AppState>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Query(query): Query<HashMap<String, String>>,
     headers: HeaderMap,
     Json(body): Json<LoginRequest>,
 ) -> Response {
-    let found = match state.db.get_admin_by_username(&body.username).await {
+    let ident = if body.login.is_empty() { body.username.as_str() } else { body.login.as_str() };
+    if ident.is_empty() || body.password.is_empty() {
+        return err(StatusCode::BAD_REQUEST, "INVALID_REQUEST", "Login and password are required");
+    }
+
+    let admin = match state.db.get_admin_by_username(ident).await {
+        Ok(found) => found,
+        Err(_) => return server_error(),
+    };
+    let user = match state.db.get_user_by_login(ident).await {
         Ok(found) => found,
         Err(_) => return server_error(),
     };
 
-    // Always verify a hash — the dummy keeps latency identical when no admin matched.
-    let stored = found
+    // Always spend the argon2id cost twice — the dummy keeps latency identical when no account matched.
+    let admin_stored = admin
         .as_ref()
         .map(|a| a.password_hash.as_str())
         .filter(|h| !h.is_empty())
         .unwrap_or_else(dummy_password_hash);
-    let password_ok = check_password(stored, &body.password);
+    let user_stored = user
+        .as_ref()
+        .map(|u| u.password_hash.as_str())
+        .filter(|h| !h.is_empty())
+        .unwrap_or_else(dummy_password_hash);
+    let admin_ok = check_password(admin_stored, &body.password);
+    let user_ok = check_password(user_stored, &body.password);
 
-    let Some(admin) = found else {
-        return err(StatusCode::UNAUTHORIZED, "INVALID_CREDENTIALS", INVALID_CREDENTIALS);
-    };
-    if !password_ok || admin.password_hash.is_empty() {
-        return err(StatusCode::UNAUTHORIZED, "INVALID_CREDENTIALS", INVALID_CREDENTIALS);
+    if let Some(admin) = admin {
+        if admin_ok && !admin.password_hash.is_empty() {
+            return login_admin(&state, &headers, peer, admin, &body.totp_code).await;
+        }
     }
+    if let Some(user) = user {
+        // Not-yet-activated and suspended accounts get the same answer as a bad password.
+        if user_ok && !user.password_hash.is_empty() && !user.suspended {
+            return login_user(&state, &headers, peer, user, safe_redirect(query.get("redirect"), "/users")).await;
+        }
+    }
+    err(StatusCode::UNAUTHORIZED, "INVALID_CREDENTIALS", INVALID_CREDENTIALS)
+}
 
+// login_admin finishes a login whose password matched an admin account.
+async fn login_admin(
+    state: &AppState,
+    headers: &HeaderMap,
+    peer: SocketAddr,
+    admin: Admin,
+    totp_code: &str,
+) -> Response {
     if admin.totp_enabled {
         let Some(secret) = admin.totp_secret.as_deref() else {
             return err(StatusCode::UNAUTHORIZED, "INVALID_CREDENTIALS", INVALID_CREDENTIALS);
         };
-        if body.totp_code.is_empty() {
+        if totp_code.is_empty() {
             return err(
                 StatusCode::UNAUTHORIZED,
                 "TOTP_REQUIRED",
                 "Two-factor authentication code required",
             );
         }
-        if !validate_totp(secret, &body.totp_code) {
+        if !validate_totp(secret, totp_code) {
             return err(StatusCode::UNAUTHORIZED, "TOTP_INVALID", "Invalid authenticator code");
         }
     }
@@ -1443,13 +1777,13 @@ pub async fn login(
         return server_error();
     };
     let now = chrono::Utc::now().timestamp();
-    let ip = request_ip(&headers, peer);
+    let ip = request_ip(headers, peer);
     let timeout = state.cfg.server.auth.admin.session_timeout;
     let session = AdminSession {
         id: session_id.clone(),
         admin_id: admin.id,
         ip: ip.clone(),
-        user_agent: user_agent(&headers),
+        user_agent: user_agent(headers),
         created_at: now,
         expires_at: now + timeout,
         last_seen: now,
@@ -1460,23 +1794,57 @@ pub async fn login(
     // Audit columns only — a failure here must not deny an otherwise valid login.
     let _ = state.db.update_admin_last_login(admin.id, now, &ip).await;
 
-    let mut res = ok(json!({"admin_id": admin.id, "username": admin.username}));
+    let mut res = ok(json!({
+        "account_type": "admin",
+        "admin_id": admin.id,
+        "username": admin.username,
+        "redirect": format!("/server/{}", state.cfg.server.admin_path),
+    }));
     set_cookie(
         &mut res,
-        &session_cookie("admin_session", &session_id, &admin_cookie_path(&state), timeout),
+        &session_cookie("admin_session", &session_id, &admin_cookie_path(state), timeout),
     );
     res
 }
 
-// POST /server/{admin_path}/auth/logout
+// login_user finishes a login whose password matched an active user account.
+async fn login_user(
+    state: &AppState,
+    headers: &HeaderMap,
+    peer: SocketAddr,
+    user: User,
+    redirect: String,
+) -> Response {
+    let Some(cookie) = start_user_session(state, user.id, headers, peer).await else {
+        return server_error();
+    };
+    let mut res = ok(json!({
+        "account_type": "user",
+        "user_id": user.id,
+        "username": user.username,
+        "redirect": redirect,
+    }));
+    set_cookie(&mut res, &cookie);
+    res
+}
+
+// GET|POST /server/auth/logout and POST /api/{api_version}/server/auth/logout — ends
+// whichever session the request carries (admin and/or user) and clears both cookies. The
+// admin cookie path is "/server", so it reaches this route.
 pub async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
     if let Some(id) = cookie_value(&headers, "admin_session") {
         if state.db.delete_admin_session(&id).await.is_err() {
             return server_error();
         }
     }
+    if let Some(id) = cookie_value(&headers, "user_session") {
+        if state.db.delete_user_session(&id).await.is_err() {
+            return server_error();
+        }
+    }
     let mut res = ok_empty();
     set_cookie(&mut res, &cleared_cookie("admin_session", &admin_cookie_path(&state)));
+    set_cookie(&mut res, &cleared_cookie("user_session", "/"));
     res
 }
 
@@ -1624,9 +1992,9 @@ pub async fn disable_totp(
 
 ### Feature 3 — User auth handler (`src/handlers/user_auth.rs`)
 
-Routes: `POST /api/{api_version}/auth/register` · `POST /server/{admin_path}/users/invite` · `POST /server/{admin_path}/users/create` · `POST /api/{api_version}/auth/invite/{token}/accept` · `POST /api/{api_version}/auth/login` · `POST /api/{api_version}/auth/logout` · `GET /api/{api_version}/auth/me` · `PUT /api/{api_version}/auth/me` · `POST /api/{api_version}/auth/password/change` · `POST /api/{api_version}/auth/password/reset/request` · `POST /api/{api_version}/auth/password/reset/confirm` · `POST /api/{api_version}/auth/email/verify`.
+Browser routes live under `/server/auth/*`; each has an API mirror under `/api/{api_version}/server/auth/*`. Login and logout are the shared `login` / `logout` handlers in the admin section above — there is no user-specific login route. Routes: `POST /server/auth/register` and `/api/{api_version}/server/auth/register` · `POST /server/{admin_path}/users/invite` · `POST /server/{admin_path}/users/create` · `POST /api/{api_version}/server/auth/invite/user/{code}` · `GET|PUT /api/{api_version}/users/settings` · `POST /api/{api_version}/users/security/password` · `POST /server/auth/password/forgot` and `/api/{api_version}/server/auth/password/forgot` · `POST /server/auth/password/reset` and `/api/{api_version}/server/auth/password/reset` · `GET /server/auth/verify/{code}` and `/api/{api_version}/server/auth/verify/{code}`.
 
-Rate limits applied at the router: `auth.register` (5/3600s), `auth.invite_create` (20/3600s), `auth.invite_accept` (10/3600s), `auth.user_login` (5/900s), `auth.password_change` (3/3600s), `auth.password_reset_request` (3/3600s), `auth.password_reset_confirm` (5/3600s), `auth.email_verify` (5/3600s).
+Rate limits applied at the router: `server.auth.register` (5/3600s), `auth.invite_create` (20/3600s), `server.auth.invite.user` (10/3600s), `auth.password_change` (3/3600s), `server.auth.password.forgot` (3/3600s), `server.auth.password.reset` (5/3600s), `server.auth.verify` (5/3600s). Login is rate limited as `server.auth.login` (see the admin section).
 
 The invite-accept body carries an `email` only for the pure-invite flow, where no `users` row exists yet and the NOT NULL/UNIQUE `users.email` column has to be filled at accept time; the admin direct-create flow already has the row and ignores it.
 
@@ -1642,15 +2010,15 @@ use serde_json::json;
 use std::{net::SocketAddr, sync::Arc};
 
 use crate::handlers::response::{
-    cleared_cookie, cookie_value, created, err, ok, ok_empty, request_ip, server_error,
-    session_cookie, set_cookie, user_agent,
+    created, err, ok, ok_empty, request_ip, server_error, session_cookie, set_cookie, user_agent,
 };
 use crate::middlewares::auth::{AdminId, UserId};
 use crate::models::auth::{
-    check_password, dummy_password_hash, hash_password, hash_token, new_session_id, new_token_raw,
+    check_password, hash_password, hash_token, new_session_id, new_token_raw,
 };
 use crate::models::user::{
     validate_email, validate_password, validate_username, PasswordReset, UserInvite, UserSession,
+    ValidationError,
 };
 use crate::state::AppState;
 
@@ -1666,8 +2034,18 @@ fn base_url(state: &AppState) -> String {
     state.cfg.server.base_url.trim_end_matches('/').to_string()
 }
 
-// start_user_session creates the session row and returns the Set-Cookie value.
-async fn start_user_session(
+// username_invalid reports a username validator failure. A reserved name gets the exact
+// response a taken name gets, so reserved names cannot be probed.
+fn username_invalid(e: &ValidationError) -> Response {
+    if matches!(e, ValidationError::Reserved) {
+        return err(StatusCode::CONFLICT, "USERNAME_TAKEN", "That username is already taken");
+    }
+    err(StatusCode::BAD_REQUEST, "INVALID_USERNAME", &e.to_string())
+}
+
+// start_user_session creates the session row and returns the Set-Cookie value. It is also
+// called by the shared login handler in admin_auth.rs.
+pub(crate) async fn start_user_session(
     state: &AppState,
     user_id: i64,
     headers: &HeaderMap,
@@ -1698,7 +2076,7 @@ pub struct RegisterRequest {
     pub password: String,
 }
 
-// POST /api/{api_version}/auth/register
+// POST /server/auth/register and POST /api/{api_version}/server/auth/register
 pub async fn register(
     State(state): State<Arc<AppState>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
@@ -1710,7 +2088,7 @@ pub async fn register(
         return err(StatusCode::NOT_FOUND, "NOT_FOUND", "not found");
     }
     if let Err(e) = validate_username(&body.username) {
-        return err(StatusCode::BAD_REQUEST, "INVALID_USERNAME", &e.to_string());
+        return username_invalid(&e);
     }
     if let Err(e) = validate_email(&body.email) {
         return err(StatusCode::BAD_REQUEST, "INVALID_EMAIL", &e.to_string());
@@ -1768,7 +2146,7 @@ pub async fn register(
         {
             return server_error();
         }
-        let link = format!("{}/auth/email/verify?token={}", base_url(&state), raw);
+        let link = format!("{}/server/auth/verify/{}", base_url(&state), raw);
         let _ = state
             .mailer
             .send(
@@ -1835,7 +2213,7 @@ pub async fn admin_invite_user(
     Json(body): Json<InviteRequest>,
 ) -> Response {
     if let Err(e) = validate_username(&body.username) {
-        return err(StatusCode::BAD_REQUEST, "INVALID_USERNAME", &e.to_string());
+        return username_invalid(&e);
     }
     match username_available(&state, &body.username).await {
         Ok(true) => {}
@@ -1853,7 +2231,7 @@ pub async fn admin_invite_user(
     };
     created(json!({
         "username": body.username,
-        "invite_url": format!("{}/auth/invite/{}", base_url(&state), raw),
+        "invite_url": format!("{}/server/auth/invite/user/{}", base_url(&state), raw),
         "expires_at": expires_at,
     }))
 }
@@ -1871,7 +2249,7 @@ pub async fn admin_create_user(
     Json(body): Json<CreateUserRequest>,
 ) -> Response {
     if let Err(e) = validate_username(&body.username) {
-        return err(StatusCode::BAD_REQUEST, "INVALID_USERNAME", &e.to_string());
+        return username_invalid(&e);
     }
     if let Err(e) = validate_email(&body.email) {
         return err(StatusCode::BAD_REQUEST, "INVALID_EMAIL", &e.to_string());
@@ -1908,7 +2286,7 @@ pub async fn admin_create_user(
     let Some((raw, _expires_at)) = new_invite(&state, &body.username, admin_id).await else {
         return server_error();
     };
-    let activation_url = format!("{}/auth/invite/{}", base_url(&state), raw);
+    let activation_url = format!("{}/server/auth/invite/user/{}", base_url(&state), raw);
 
     if state.mailer.is_configured() {
         let _ = state
@@ -1935,16 +2313,16 @@ pub struct AcceptInviteRequest {
     pub email: String,
 }
 
-// POST /api/{api_version}/auth/invite/{token}/accept
+// POST /api/{api_version}/server/auth/invite/user/{code}
 pub async fn accept_invite(
     State(state): State<Arc<AppState>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    Path(token): Path<String>,
+    Path(code): Path<String>,
     headers: HeaderMap,
     Json(body): Json<AcceptInviteRequest>,
 ) -> Response {
     let now = chrono::Utc::now().timestamp();
-    let invite = match state.db.get_user_invite(&hash_token(&token)).await {
+    let invite = match state.db.get_user_invite(&hash_token(&code)).await {
         Ok(Some(invite)) => invite,
         // Unknown, expired and used all render the same generic state.
         Ok(None) => return err(StatusCode::BAD_REQUEST, "INVITE_INVALID", INVITE_INVALID),
@@ -2006,60 +2384,7 @@ pub async fn accept_invite(
     res
 }
 
-#[derive(Debug, Deserialize)]
-pub struct UserLoginRequest {
-    // Username or email address.
-    pub login: String,
-    pub password: String,
-}
-
-// POST /api/{api_version}/auth/login
-pub async fn login(
-    State(state): State<Arc<AppState>>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
-    Json(body): Json<UserLoginRequest>,
-) -> Response {
-    let found = match state.db.get_user_by_login(&body.login).await {
-        Ok(found) => found,
-        Err(_) => return server_error(),
-    };
-    let stored = found
-        .as_ref()
-        .map(|u| u.password_hash.as_str())
-        .filter(|h| !h.is_empty())
-        .unwrap_or_else(dummy_password_hash);
-    let password_ok = check_password(stored, &body.password);
-
-    let Some(user) = found else {
-        return err(StatusCode::UNAUTHORIZED, "INVALID_CREDENTIALS", INVALID_CREDENTIALS);
-    };
-    // Not-yet-activated and suspended accounts get the same answer as a bad password.
-    if !password_ok || user.password_hash.is_empty() || user.suspended {
-        return err(StatusCode::UNAUTHORIZED, "INVALID_CREDENTIALS", INVALID_CREDENTIALS);
-    }
-
-    let Some(cookie) = start_user_session(&state, user.id, &headers, peer).await else {
-        return server_error();
-    };
-    let mut res = ok(json!({"user_id": user.id, "username": user.username}));
-    set_cookie(&mut res, &cookie);
-    res
-}
-
-// POST /api/{api_version}/auth/logout
-pub async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
-    if let Some(id) = cookie_value(&headers, "user_session") {
-        if state.db.delete_user_session(&id).await.is_err() {
-            return server_error();
-        }
-    }
-    let mut res = ok_empty();
-    set_cookie(&mut res, &cleared_cookie("user_session", "/"));
-    res
-}
-
-// GET /api/{api_version}/auth/me
+// GET /api/{api_version}/users/settings
 pub async fn me(
     State(state): State<Arc<AppState>>,
     Extension(UserId(user_id)): Extension<UserId>,
@@ -2085,7 +2410,7 @@ pub struct UpdateMeRequest {
     pub avatar_url: String,
 }
 
-// PUT /api/{api_version}/auth/me — profile fields only.
+// PUT /api/{api_version}/users/settings — profile fields only.
 pub async fn update_me(
     State(state): State<Arc<AppState>>,
     Extension(UserId(user_id)): Extension<UserId>,
@@ -2116,7 +2441,7 @@ pub struct ChangePasswordRequest {
     pub new_password: String,
 }
 
-// POST /api/{api_version}/auth/password/change
+// POST /api/{api_version}/users/security/password
 pub async fn change_password(
     State(state): State<Arc<AppState>>,
     Extension(UserId(user_id)): Extension<UserId>,
@@ -2150,7 +2475,7 @@ pub struct ResetRequest {
     pub email: String,
 }
 
-// POST /api/{api_version}/auth/password/reset/request
+// POST /server/auth/password/forgot and its /api/{api_version}/server/auth/password/forgot mirror
 pub async fn request_password_reset(
     State(state): State<Arc<AppState>>,
     Json(body): Json<ResetRequest>,
@@ -2176,7 +2501,7 @@ pub async fn request_password_reset(
         used: false,
     };
     if state.db.create_password_reset(&reset).await.is_ok() {
-        let link = format!("{}/auth/password/reset/confirm?token={}", base_url(&state), raw);
+        let link = format!("{}/server/auth/password/reset?token={}", base_url(&state), raw);
         let _ = state
             .mailer
             .send(&user.email, "Reset your password", &format!("Reset link: {link}"))
@@ -2191,7 +2516,7 @@ pub struct ResetConfirmRequest {
     pub new_password: String,
 }
 
-// POST /api/{api_version}/auth/password/reset/confirm
+// POST /server/auth/password/reset and its /api/{api_version}/server/auth/password/reset mirror
 pub async fn confirm_password_reset(
     State(state): State<Arc<AppState>>,
     Json(body): Json<ResetConfirmRequest>,
@@ -2237,18 +2562,13 @@ pub async fn confirm_password_reset(
     ok_empty()
 }
 
-#[derive(Debug, Deserialize)]
-pub struct VerifyEmailRequest {
-    pub token: String,
-}
-
-// POST /api/{api_version}/auth/email/verify
+// GET /server/auth/verify/{code} and its /api/{api_version}/server/auth/verify/{code} mirror
 pub async fn verify_email(
     State(state): State<Arc<AppState>>,
-    Json(body): Json<VerifyEmailRequest>,
+    Path(code): Path<String>,
 ) -> Response {
     let now = chrono::Utc::now().timestamp();
-    let token_hash = hash_token(&body.token);
+    let token_hash = hash_token(&code);
     let record = match state.db.get_email_verification(&token_hash).await {
         Ok(Some(record)) => record,
         Ok(None) => {
@@ -2280,7 +2600,7 @@ pub async fn verify_email(
 
 ### Feature 2 — API token handler (`src/handlers/token.rs`)
 
-Routes: `GET /api/{api_version}/auth/tokens` · `POST /api/{api_version}/auth/tokens` · `DELETE /api/{api_version}/auth/tokens/{id}`. Each is behind `require_user` or `require_admin` — whichever extension the middleware set decides the owner.
+Routes (same handlers, two route groups): users — `GET|POST /api/{api_version}/users/tokens` and `DELETE /api/{api_version}/users/tokens/{id}` behind `require_user`; admins — `GET|POST /api/{api_version}/server/{admin_path}/security/tokens` and `DELETE /api/{api_version}/server/{admin_path}/security/tokens/{id}` behind `require_admin`. Whichever extension the middleware set decides the owner. All rows live in the unified `tokens` table; revoking deletes the row.
 
 ```rust
 use axum::{
@@ -2296,7 +2616,9 @@ use std::sync::Arc;
 use crate::handlers::response::{created, err, ok, ok_empty, server_error};
 use crate::middlewares::auth::{AdminId, UserId};
 use crate::models::auth::new_token_raw;
-use crate::models::token::{ApiToken, TOKEN_PREFIX_ADMIN, TOKEN_PREFIX_USER};
+use crate::models::token::{
+    valid_token_scope, Token, TOKEN_PREFIX_ADMIN, TOKEN_PREFIX_USER, TOKEN_SCOPE_GLOBAL,
+};
 use crate::state::AppState;
 
 // owner resolves whichever identity middleware put in the request extensions.
@@ -2315,7 +2637,7 @@ fn unauthenticated() -> Response {
     err(StatusCode::UNAUTHORIZED, "UNAUTHORIZED", "Authentication required")
 }
 
-// GET /api/{api_version}/auth/tokens
+// GET /api/{api_version}/users/tokens (and the admin twin)
 pub async fn list_tokens(
     State(state): State<Arc<AppState>>,
     admin: Option<Extension<AdminId>>,
@@ -2324,8 +2646,8 @@ pub async fn list_tokens(
     let Some((owner_type, owner_id)) = owner(admin, user) else {
         return unauthenticated();
     };
-    match state.db.list_api_tokens(&owner_type, owner_id).await {
-        // ApiToken serializes with token_hash skipped.
+    match state.db.list_tokens(&owner_type, owner_id).await {
+        // Token serializes with token_hash skipped.
         Ok(tokens) => match serde_json::to_value(&tokens) {
             Ok(value) => ok(json!({"tokens": value})),
             Err(_) => server_error(),
@@ -2337,13 +2659,16 @@ pub async fn list_tokens(
 #[derive(Debug, Deserialize)]
 pub struct CreateTokenRequest {
     pub name: String,
+    // "global" (default), "read-write" or "read"
     #[serde(default)]
-    pub scopes: Vec<String>,
+    pub scope: Option<String>,
     #[serde(default)]
     pub expires_at: Option<i64>,
 }
 
-// POST /api/{api_version}/auth/tokens — the raw token is returned exactly once.
+// POST /api/{api_version}/users/tokens (and the admin twin) — the raw token
+// `{prefix}{32 alphanumeric}` is returned exactly once; only its SHA-256 hash and the
+// 8-character display prefix are stored.
 pub async fn create_token(
     State(state): State<Arc<AppState>>,
     admin: Option<Extension<AdminId>>,
@@ -2357,12 +2682,17 @@ pub async fn create_token(
     if name.is_empty() {
         return err(StatusCode::BAD_REQUEST, "INVALID_NAME", "Token name is required");
     }
+    let scope = body.scope.clone().unwrap_or_else(|| TOKEN_SCOPE_GLOBAL.to_string());
+    if !valid_token_scope(&scope) {
+        return err(
+            StatusCode::BAD_REQUEST,
+            "INVALID_SCOPE",
+            "Scope must be global, read-write or read",
+        );
+    }
     let prefix = if owner_type == "admin" { TOKEN_PREFIX_ADMIN } else { TOKEN_PREFIX_USER };
     let Ok((raw, token_hash)) = new_token_raw(prefix) else {
         return server_error();
-    };
-    let Ok(scopes) = serde_json::to_string(&body.scopes) else {
-        return err(StatusCode::BAD_REQUEST, "INVALID_SCOPES", "Scopes must be a list of strings");
     };
     let now = chrono::Utc::now().timestamp();
     let default_expiry = state.cfg.server.auth.tokens.default_expiry;
@@ -2371,32 +2701,42 @@ pub async fn create_token(
         .expires_at
         .or(if default_expiry > 0 { Some(now + default_expiry) } else { None });
 
-    let token = ApiToken {
+    let token_prefix: String = raw.chars().take(8).collect();
+    let token = Token {
         id: 0,
         owner_type: owner_type.clone(),
         owner_id,
-        token_hash,
         name: name.clone(),
-        scopes: scopes.clone(),
-        created_at: now,
+        token_hash,
+        token_prefix: token_prefix.clone(),
+        scope: scope.clone(),
         expires_at,
-        last_used: None,
-        revoked: false,
+        last_used_at: None,
+        created_at: now,
     };
-    let id = match state.db.create_api_token(&token).await {
+    let id = match state.db.create_token(&token).await {
         Ok(id) => id,
+        // UNIQUE(owner_type, owner_id, name)
+        Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
+            return err(
+                StatusCode::CONFLICT,
+                "TOKEN_NAME_TAKEN",
+                "You already have a token with that name",
+            )
+        }
         Err(_) => return server_error(),
     };
     created(json!({
         "id": id,
         "name": name,
         "token": raw,
-        "scopes": body.scopes,
+        "token_prefix": token_prefix,
+        "scope": scope,
         "expires_at": expires_at,
     }))
 }
 
-// DELETE /api/{api_version}/auth/tokens/{id}
+// DELETE /api/{api_version}/users/tokens/{id} (and the admin twin)
 pub async fn revoke_token(
     State(state): State<Arc<AppState>>,
     admin: Option<Extension<AdminId>>,
@@ -2406,7 +2746,7 @@ pub async fn revoke_token(
     let Some((owner_type, owner_id)) = owner(admin, user) else {
         return unauthenticated();
     };
-    let token = match state.db.get_api_token_by_id(id).await {
+    let token = match state.db.get_token_by_id(id).await {
         Ok(Some(token)) => token,
         Ok(None) => return err(StatusCode::NOT_FOUND, "TOKEN_NOT_FOUND", "Token not found"),
         Err(_) => return server_error(),
@@ -2415,7 +2755,7 @@ pub async fn revoke_token(
     if token.owner_type != owner_type || token.owner_id != owner_id {
         return err(StatusCode::NOT_FOUND, "TOKEN_NOT_FOUND", "Token not found");
     }
-    if state.db.revoke_api_token(token.id).await.is_err() {
+    if state.db.delete_token(token.id).await.is_err() {
         return server_error();
     }
     ok_empty()
@@ -2440,7 +2780,7 @@ use std::sync::Arc;
 use crate::handlers::response::{created, err, ok, ok_empty, server_error};
 use crate::middlewares::auth::UserId;
 use crate::models::auth::{hash_token, new_session_id, new_token_raw};
-use crate::models::org::{validate_org_slug, Org, OrgInvite};
+use crate::models::org::{validate_org_slug, Org, OrgInvite, ValidationError};
 use crate::state::AppState;
 
 const ORG_NOT_FOUND: &str = "Organization not found";
@@ -2501,6 +2841,14 @@ pub async fn create_org(
 ) -> Response {
     let slug = body.slug.trim().to_lowercase();
     if let Err(e) = validate_org_slug(&slug) {
+        // A reserved slug gets the exact response a taken slug gets.
+        if matches!(e, ValidationError::Reserved) {
+            return err(
+                StatusCode::CONFLICT,
+                "ORG_SLUG_TAKEN",
+                "That organization name is already taken",
+            );
+        }
         return err(StatusCode::BAD_REQUEST, "INVALID_SLUG", &e.to_string());
     }
     let display_name = body.display_name.trim();
@@ -3116,12 +3464,14 @@ pub trait HandlerDb: Send + Sync {
     async fn get_email_verification(&self, token_hash: &str) -> sqlx::Result<Option<(i64, String, i64, bool)>>;
     async fn mark_email_verification_used(&self, token_hash: &str) -> sqlx::Result<()>;
 
-    // Feature 2 — API tokens
-    async fn list_api_tokens(&self, owner_type: &str, owner_id: i64) -> sqlx::Result<Vec<crate::models::token::ApiToken>>;
-    // Ignores token.id and returns the newly assigned row id.
-    async fn create_api_token(&self, token: &crate::models::token::ApiToken) -> sqlx::Result<i64>;
-    async fn get_api_token_by_id(&self, id: i64) -> sqlx::Result<Option<crate::models::token::ApiToken>>;
-    async fn revoke_api_token(&self, id: i64) -> sqlx::Result<()>;
+    // Feature 2 — tokens (unified `tokens` table)
+    async fn list_tokens(&self, owner_type: &str, owner_id: i64) -> sqlx::Result<Vec<crate::models::token::Token>>;
+    // Ignores token.id and returns the newly assigned row id. A UNIQUE(owner_type, owner_id, name)
+    // violation must surface as the driver's unique-violation error so create_token can answer 409.
+    async fn create_token(&self, token: &crate::models::token::Token) -> sqlx::Result<i64>;
+    async fn get_token_by_id(&self, id: i64) -> sqlx::Result<Option<crate::models::token::Token>>;
+    // delete_token revokes a token by deleting its row.
+    async fn delete_token(&self, id: i64) -> sqlx::Result<()>;
 
     // Feature 4 — orgs/teams
     async fn list_orgs_for_user(&self, user_id: i64) -> sqlx::Result<Vec<crate::models::org::Org>>;
@@ -3174,51 +3524,15 @@ Each template is backed by a Rust struct deriving `askama::Template`, e.g.:
 use askama::Template;
 
 #[derive(Template)]
-#[template(path = "auth/admin_login.html")]
-pub struct AdminLoginTemplate {
-    pub admin_path: String,
+#[template(path = "auth/login.html")]
+pub struct LoginTemplate {
     pub csrf_token: String,
     pub error: Option<String>,
-    pub username: String,
+    pub login: String,
+    pub redirect: String,
     pub totp_required: bool,
+    pub registration_open: bool,
 }
-```
-
-### Admin login — `{TEMPLATE_DIR}/auth/admin_login.html`
-
-```html
-{% extends "layouts/public.html" %}
-{% block content %}
-<div class="auth-container">
-  <div class="auth-card">
-    <h1 class="auth-title">Admin Sign In</h1>
-    {% if let Some(error) = error %}
-    <div class="alert alert-error" role="alert">{{ error }}</div>
-    {% endif %}
-    <form method="POST" action="/server/{{ admin_path }}/auth/login" autocomplete="off">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <div class="field">
-        <label for="username">Username</label>
-        <input id="username" type="text" name="username" value="{{ username }}"
-               autocomplete="username" required autofocus>
-      </div>
-      <div class="field">
-        <label for="password">Password</label>
-        <input id="password" type="password" name="password"
-               autocomplete="current-password" required>
-      </div>
-      {% if totp_required %}
-      <div class="field">
-        <label for="totp_code">Authenticator code</label>
-        <input id="totp_code" type="text" name="totp_code" inputmode="numeric"
-               pattern="[0-9]{6}" autocomplete="one-time-code" placeholder="000000">
-      </div>
-      {% endif %}
-      <button type="submit" class="btn btn-primary btn-full">Sign in</button>
-    </form>
-  </div>
-</div>
-{% endblock %}
 ```
 
 ### User registration — `{TEMPLATE_DIR}/auth/register.html`
@@ -3232,7 +3546,7 @@ pub struct AdminLoginTemplate {
   <div class="auth-card">
     <h1 class="auth-title">Create an account</h1>
     {% if let Some(error) = error %}<div class="alert alert-error" role="alert">{{ error }}</div>{% endif %}
-    <form method="POST" action="/api/{{ api_version }}/auth/register">
+    <form method="POST" action="/server/auth/register">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="field">
         <label for="username">Username</label>
@@ -3253,13 +3567,15 @@ pub struct AdminLoginTemplate {
       </div>
       <button type="submit" class="btn btn-primary btn-full">Create account</button>
     </form>
-    <p class="auth-footer">Already have an account? <a href="/auth/login">Sign in</a></p>
+    <p class="auth-footer">Already have an account? <a href="/server/auth/login">Sign in</a></p>
   </div>
 </div>
 {% endblock %}
 ```
 
-### User login — `{TEMPLATE_DIR}/auth/login.html`
+### Login (admins and users) — `{TEMPLATE_DIR}/auth/login.html`
+
+The ONE login page for Server Admins and regular users: `GET /server/auth/login`. There is no admin-specific login template. After success the response's `redirect` sends admins to `/server/{admin_path}` and users to `/users`.
 
 ```html
 {% extends "layouts/public.html" %}
@@ -3268,7 +3584,7 @@ pub struct AdminLoginTemplate {
   <div class="auth-card">
     <h1 class="auth-title">Sign in</h1>
     {% if let Some(error) = error %}<div class="alert alert-error" role="alert">{{ error }}</div>{% endif %}
-    <form method="POST" action="/api/{{ api_version }}/auth/login">
+    <form method="POST" action="/server/auth/login">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="redirect" value="{{ redirect }}">
       <div class="field">
@@ -3279,14 +3595,21 @@ pub struct AdminLoginTemplate {
       <div class="field">
         <label for="password">
           Password
-          <a href="/auth/password/reset" class="field-label-action">Forgot password?</a>
+          <a href="/server/auth/password/forgot" class="field-label-action">Forgot password?</a>
         </label>
         <input id="password" type="password" name="password"
                autocomplete="current-password" required>
       </div>
+      {% if totp_required %}
+      <div class="field">
+        <label for="totp_code">Authenticator code</label>
+        <input id="totp_code" type="text" name="totp_code" inputmode="numeric"
+               pattern="[0-9]{6}" autocomplete="one-time-code" placeholder="000000">
+      </div>
+      {% endif %}
       <button type="submit" class="btn btn-primary btn-full">Sign in</button>
     </form>
-    <p class="auth-footer">No account? <a href="/auth/register">Create one</a></p>
+    {% if registration_open %}<p class="auth-footer">No account? <a href="/server/auth/register">Create one</a></p>{% endif %}
   </div>
 </div>
 {% endblock %}
@@ -3306,7 +3629,7 @@ pub struct AdminLoginTemplate {
     </div>
     {% else %}
     {% if let Some(error) = error %}<div class="alert alert-error" role="alert">{{ error }}</div>{% endif %}
-    <form method="POST" action="/api/{{ api_version }}/auth/password/reset/request">
+    <form method="POST" action="/server/auth/password/forgot">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="field">
         <label for="email">Email address</label>
@@ -3316,7 +3639,7 @@ pub struct AdminLoginTemplate {
       <button type="submit" class="btn btn-primary btn-full">Send reset link</button>
     </form>
     {% endif %}
-    <p class="auth-footer"><a href="/auth/login">Back to sign in</a></p>
+    <p class="auth-footer"><a href="/server/auth/login">Back to sign in</a></p>
   </div>
 </div>
 {% endblock %}
@@ -3331,7 +3654,7 @@ pub struct AdminLoginTemplate {
   <div class="auth-card">
     <h1 class="auth-title">Set new password</h1>
     {% if let Some(error) = error %}<div class="alert alert-error" role="alert">{{ error }}</div>{% endif %}
-    <form method="POST" action="/api/{{ api_version }}/auth/password/reset/confirm">
+    <form method="POST" action="/server/auth/password/reset">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="token" value="{{ token }}">
       <div class="field">
@@ -3360,7 +3683,7 @@ Rendered for both the admin-invite and direct-create private-mode flows (Step 4/
     <h1 class="auth-title">Welcome, {{ username }}</h1>
     <p>Set a password to activate your account.</p>
     {% if let Some(error) = error %}<div class="alert alert-error" role="alert">{{ error }}</div>{% endif %}
-    <form method="POST" action="/api/{{ api_version }}/auth/invite/{{ token }}/accept">
+    <form method="POST" action="/server/auth/invite/user/{{ token }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="field">
         <label for="password">Password</label>
@@ -3405,7 +3728,7 @@ Rendered for both the admin-invite and direct-create private-mode flows (Step 4/
 
   <section class="profile-section">
     <h2>Edit profile</h2>
-    <form method="POST" action="/api/{{ api_version }}/auth/me">
+    <form method="POST" action="/users/settings">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="_method" value="PUT">
       <div class="field">
@@ -3425,15 +3748,17 @@ Rendered for both the admin-invite and direct-create private-mode flows (Step 4/
     <h2>API tokens</h2>
     {% if !tokens.is_empty() %}
     <table class="table">
-      <thead><tr><th>Name</th><th>Created</th><th>Last used</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Token</th><th>Scope</th><th>Created</th><th>Last used</th><th></th></tr></thead>
       <tbody>
         {% for token in tokens %}
         <tr>
           <td>{{ token.name }}</td>
+          <td><code>{{ token.token_prefix }}…</code></td>
+          <td>{{ token.scope }}</td>
           <td>{{ token.created_at|format_date }}</td>
-          <td>{% if let Some(last_used) = token.last_used %}{{ last_used|format_date }}{% else %}Never{% endif %}</td>
+          <td>{% if let Some(last_used) = token.last_used_at %}{{ last_used|format_date }}{% else %}Never{% endif %}</td>
           <td>
-            <form method="POST" action="/api/{{ api_version }}/auth/tokens/{{ token.id }}"
+            <form method="POST" action="/users/tokens/{{ token.id }}/delete"
                   data-confirm="revoke-token-{{ token.id }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <input type="hidden" name="_method" value="DELETE">
@@ -3456,9 +3781,14 @@ Rendered for both the admin-invite and direct-create private-mode flows (Step 4/
     {% else %}
     <p class="empty-state">No API tokens yet.</p>
     {% endif %}
-    <form method="POST" action="/api/{{ api_version }}/auth/tokens" class="inline-form">
+    <form method="POST" action="/users/tokens" class="inline-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="text" name="name" placeholder="Token name" required>
+      <select name="scope" aria-label="Scope">
+        <option value="global">Global</option>
+        <option value="read-write">Read and write</option>
+        <option value="read">Read only</option>
+      </select>
       <button type="submit" class="btn btn-secondary">Create token</button>
     </form>
     {% if let Some(new_token) = new_token %}
@@ -3548,17 +3878,18 @@ Rendered for both the admin-invite and direct-create private-mode flows (Step 4/
 
 ## Step 10 — Frontend routes (HTML page routes)
 
-Register HTML-serving routes alongside the API routes. Each HTML route renders the corresponding template with a page-data struct. These are GET routes; POST submits go to the API routes and redirect on success.
+Register HTML-serving routes alongside the API routes. Each HTML route renders the corresponding template with a page-data struct. These are GET routes; POST submits go to the matching browser route under `/server/auth/*` or `/users/*` (same handler as its `/api/{api_version}/server/auth/*` mirror) and redirect on success.
 
 | Method | Path | Template | Auth |
 |--------|------|----------|------|
-| GET | `/server/{admin_path}/auth/login` | `auth/admin_login.html` | none |
-| GET | `/auth/register` | `auth/register.html` (404 when `users.registration.mode == "private"`) | none |
-| GET | `/auth/login` | `auth/login.html` | none |
-| GET | `/auth/password/reset` | `auth/password_reset_request.html` | none |
-| GET | `/auth/password/reset/confirm` | `auth/password_reset_confirm.html` | none |
-| GET | `/auth/invite/{token}` | `auth/invite_accept.html` | none |
-| GET | `/auth/me` | `auth/profile.html` | require_user |
+| GET | `/server/auth/login` | `auth/login.html` (shared by admins and users) | none |
+| GET | `/server/{admin_path}` | redirects to `/server/auth/login` when there is no admin session | none |
+| GET | `/server/auth/register` | `auth/register.html` (404 when `users.registration.mode == "private"`) | none |
+| GET | `/server/auth/password/forgot` | `auth/password_reset_request.html` | none |
+| GET | `/server/auth/password/reset` | `auth/password_reset_confirm.html` (reads the emailed `?token=`) | none |
+| GET | `/server/auth/verify/{code}` | verifies the email, then redirects to `/users` | none |
+| GET | `/server/auth/invite/user/{code}` | `auth/invite_accept.html` | none |
+| GET | `/users/settings` | `auth/profile.html` | require_user |
 | GET | `/orgs/new` | `auth/org_new.html` | require_user |
 | GET | `/domains/add` | `auth/domain_add.html` | require_user |
 
@@ -3572,21 +3903,32 @@ Find the router assembly file (`src/routes/mod.rs`). Add these route groups, and
 Allowlist → Blocklist → RateLimit → GeoIP → CSRF → Auth → Handler
 ```
 
+Shared auth routes (no auth middleware, rate limited, CSRF on the browser forms): `/server/auth/{login,logout,register,verify/{code},password/forgot,password/reset,invite/user/{code}}` and their `/api/{api_version}/server/auth/*` mirrors. `login` and `logout` are mounted ONCE each and serve admins and users. Mount `require_token` on token-protected API groups. `GET /server/{admin_path}` redirects to `/server/auth/login` when `require_admin` finds no session.
+
 Admin routes use `require_admin`. User routes use `require_user` or `require_token`. Public auth routes (login, register, reset) have no auth middleware but do have `rate_limit_for(...)` applied per-route. `middlewares::auth::csrf_double` wraps every route in Step 9's frontend group and every non-token-authenticated route in Step 8's API group (i.e. everything reachable from a browser form) — it must sit outside `require_admin`/`require_user` so the token check still runs, but does not need to wrap `require_token`-protected API routes, since Bearer-token clients are not vulnerable to cross-site form submission.
 
 ---
 
 ## Step 12 — Config
 
-Extend the project's config struct (`src/config/mod.rs`) and `server.yml` example, using `serde::Deserialize` to match the project's existing config-loading pattern:
+Extend the project's config struct (`src/config/mod.rs`) and YAML, using `serde::Deserialize` to match the project's existing config-loading pattern. The project's YAML is split across `server.yml` and `yaml.d/*.yml` (SERVER.md PART 12): auth settings do NOT go in `server.yml`.
+
+- `yaml.d/accounts.yml` holds `server.admin`, `server.users`, `server.orgs`, `server.session`, `server.auth` and `server.admin_path` (default `administration`; `admin` is reserved).
+- `yaml.d/security.yml` holds `server.tokens` and the rate-limit overrides (`server.rate_limit`, keyed by the Step 7 endpoint names).
+- `server.yml` keeps only this node's settings (port, address, fqdn, mode, api_version, ...); it gets no auth keys.
+
+`AuthConfig` is therefore assembled by the config loader from those files, not read from one node (the code in Steps 8 and 14 reads it as `cfg.server.auth.{admin,users,tokens}`):
 
 ```rust
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthConfig {
+    // server.admin (yaml.d/accounts.yml)
     pub admin: AdminAuthConfig,
+    // server.users (yaml.d/accounts.yml)
     pub users: UsersAuthConfig,
+    // server.tokens (yaml.d/security.yml)
     pub tokens: TokensAuthConfig,
 }
 
@@ -3620,7 +3962,7 @@ pub struct UsersAuthConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegistrationConfig {
     // "open" (anyone can self-register, default) or "private" (admin invite/create only —
-    // /auth/register returns 404). There is no "disabled" mode: to stop growth under
+    // /server/auth/register returns 404). There is no "disabled" mode: to stop growth under
     // "private", the admin simply stops inviting/creating users. Admin invite and direct-create
     // are available in BOTH modes — this setting only gates the public self-registration form.
     pub mode: String,
@@ -3634,24 +3976,30 @@ pub struct TokensAuthConfig {
 ```
 
 ```yaml
+# yaml.d/accounts.yml
 server:
-  auth:
-    admin:
-      session_timeout: 86400
-      session_idle_timeout: 3600
-      require_totp: false
-      max_sessions: 5
-    users:
-      registration:
-        # open | private
-        mode: open
-      require_email_verification: true
-      session_timeout: 2592000
-      session_idle_timeout: 86400
-      max_sessions_per_user: 10
-      invite_expiry: 604800
-    tokens:
-      default_expiry: 0
+  admin_path: administration
+  admin:
+    session_timeout: 86400
+    session_idle_timeout: 3600
+    require_totp: false
+    max_sessions: 5
+  users:
+    registration:
+      # open | private
+      mode: open
+    require_email_verification: true
+    session_timeout: 2592000
+    session_idle_timeout: 86400
+    max_sessions_per_user: 10
+    invite_expiry: 604800
+```
+
+```yaml
+# yaml.d/security.yml
+server:
+  tokens:
+    default_expiry: 0
 ```
 
 ---
@@ -3757,7 +4105,9 @@ pub async fn test_state() -> Arc<AppState> {
     let db = Db::connect("sqlite::memory:").await.expect("open test db");
     db.migrate().await.expect("apply schema");
     let mut cfg = Config::default();
-    cfg.server.admin_path = "admin".to_string();
+    cfg.server.admin_path = "administration".to_string();
+    // The Bearer challenge realm is the project name.
+    cfg.server.name = "{project_name}".to_string();
     cfg.server.base_url = "https://test.local".to_string();
     Arc::new(AppState::for_tests(cfg, db))
 }
@@ -3767,33 +4117,26 @@ pub async fn test_state() -> Arc<AppState> {
 pub fn test_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route(
-            "/server/admin/auth/login",
+            "/server/auth/login",
             post(admin_auth::login).layer(middleware::from_fn_with_state(
                 state.clone(),
-                rate_limit_for("auth.admin_login", 5, 900),
+                rate_limit_for("server.auth.login", 5, 900),
             )),
         )
         .route(
-            "/server/admin/auth/session",
+            "/server/administration/auth/session",
             get(admin_auth::session)
                 .layer(middleware::from_fn_with_state(state.clone(), require_admin)),
         )
-        .route("/api/v1/auth/register", post(user_auth::register))
+        .route("/api/v1/server/auth/register", post(user_auth::register))
         .route(
-            "/api/v1/auth/login",
-            post(user_auth::login).layer(middleware::from_fn_with_state(
-                state.clone(),
-                rate_limit_for("auth.user_login", 5, 900),
-            )),
-        )
-        .route(
-            "/api/v1/auth/tokens",
+            "/api/v1/users/tokens",
             post(token::create_token)
                 .layer(middleware::from_fn(require_scope("write")))
                 .layer(middleware::from_fn_with_state(state.clone(), require_token)),
         )
         .route(
-            "/api/v1/auth/me",
+            "/api/v1/users/settings",
             get(user_auth::me)
                 .layer(middleware::from_fn_with_state(state.clone(), require_user)),
         )
@@ -3861,7 +4204,7 @@ async fn admin_login_happy_path_sets_hardened_cookie() {
     let res = call(
         &app,
         json_post(
-            "/server/admin/auth/login",
+            "/server/auth/login",
             json!({"username": "root", "password": "correct-horse"}),
             None,
         ),
@@ -3876,7 +4219,7 @@ async fn admin_login_happy_path_sets_hardened_cookie() {
     assert!(cookie.contains("HttpOnly"));
     assert!(cookie.contains("Secure"));
     assert!(cookie.contains("SameSite=Strict"));
-    assert!(cookie.contains("Path=/server/admin"));
+    assert!(cookie.contains("Path=/server;"));
 }
 
 #[tokio::test]
@@ -3893,7 +4236,7 @@ async fn admin_login_rejects_malformed_and_missing_fields() {
     for (name, body) in cases {
         let req = Request::builder()
             .method("POST")
-            .uri("/server/admin/auth/login")
+            .uri("/server/auth/login")
             .header(axum::http::header::CONTENT_TYPE, "application/json")
             .body(body)
             .expect("build request");
@@ -3907,12 +4250,12 @@ async fn admin_session_requires_authentication() {
     let state = test_state().await;
     let app = test_router(state);
 
-    let no_cookie = call(&app, get_request("/server/admin/auth/session", None)).await;
+    let no_cookie = call(&app, get_request("/server/administration/auth/session", None)).await;
     assert_eq!(no_cookie.status, StatusCode::UNAUTHORIZED);
 
     let bogus = call(
         &app,
-        get_request("/server/admin/auth/session", Some("admin_session=deadbeef")),
+        get_request("/server/administration/auth/session", Some("admin_session=deadbeef")),
     )
     .await;
     assert_eq!(bogus.status, StatusCode::UNAUTHORIZED);
@@ -3927,7 +4270,7 @@ async fn admin_login_is_identical_for_unknown_user_and_wrong_password() {
     let unknown = call(
         &app,
         json_post(
-            "/server/admin/auth/login",
+            "/server/auth/login",
             json!({"username": "nobody", "password": "correct-horse"}),
             None,
         ),
@@ -3936,7 +4279,7 @@ async fn admin_login_is_identical_for_unknown_user_and_wrong_password() {
     let wrong = call(
         &app,
         json_post(
-            "/server/admin/auth/login",
+            "/server/auth/login",
             json!({"username": "root", "password": "wrong-password"}),
             None,
         ),
@@ -3961,7 +4304,7 @@ async fn admin_login_rate_limits_after_five_attempts() {
         let res = call(
             &app,
             json_post(
-                "/server/admin/auth/login",
+                "/server/auth/login",
                 json!({"username": "root", "password": "wrong-password"}),
                 None,
             ),
@@ -3972,7 +4315,7 @@ async fn admin_login_rate_limits_after_five_attempts() {
     let limited = call(
         &app,
         json_post(
-            "/server/admin/auth/login",
+            "/server/auth/login",
             json!({"username": "root", "password": "correct-horse"}),
             None,
         ),
@@ -3987,47 +4330,186 @@ async fn admin_login_rate_limits_after_five_attempts() {
 async fn token_route_rejects_token_without_required_scope() {
     let state = test_state().await;
     seed_admin(&state, "root", "correct-horse").await;
-    let raw = seed_api_token(&state, "admin", 1, &["read"]).await;
+    let raw = seed_token(&state, "admin", 1, "read").await;
     let app = test_router(state);
 
-    let req = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/tokens")
-        .header(axum::http::header::CONTENT_TYPE, "application/json")
-        .header(axum::http::header::AUTHORIZATION, format!("Bearer {raw}"))
-        .body(Body::from(json!({"name": "ci", "scopes": ["read"]}).to_string()))
-        .expect("build request");
-    let res = call(&app, req).await;
+    let res = call(&app, token_post(Some(format!("Bearer {raw}")), None)).await;
 
     assert_eq!(res.status, StatusCode::FORBIDDEN);
     assert_eq!(res.body["error"], json!("FORBIDDEN"));
+    assert_eq!(
+        res.headers.get("WWW-Authenticate").and_then(|v| v.to_str().ok()),
+        Some("Bearer error=\"insufficient_scope\"")
+    );
 }
 
-// seed_api_token inserts a token with the given scopes and returns the raw value.
-async fn seed_api_token(
+#[tokio::test]
+async fn token_route_accepts_global_and_read_write_scopes() {
+    let state = test_state().await;
+    seed_admin(&state, "root", "correct-horse").await;
+    let global = seed_token(&state, "admin", 1, "global").await;
+    let rw = seed_token(&state, "admin", 1, "read-write").await;
+    let app = test_router(state);
+
+    let a = call(&app, token_post(Some(format!("Bearer {global}")), None)).await;
+    assert_eq!(a.status, StatusCode::CREATED);
+    // The raw token is `adm_` + 32 alphanumeric and is only ever shown here.
+    let raw = a.body["data"]["token"].as_str().expect("raw token");
+    assert!(raw.starts_with("adm_") && raw.len() == 36);
+    assert!(raw[4..].chars().all(|c| c.is_ascii_alphanumeric()));
+    assert_eq!(a.body["data"]["token_prefix"], json!(&raw[..8]));
+    assert!(a.body["data"].get("token_hash").is_none());
+
+    let b = call(&app, token_post(Some(format!("Bearer {rw}")), None)).await;
+    assert_eq!(b.status, StatusCode::CREATED);
+}
+
+// Bearer is the ONLY accepted credential form: every other header, Basic auth and a
+// `?token=` query parameter leave the request anonymous, and the 401 carries the
+// RFC 6750 challenge.
+#[tokio::test]
+async fn token_route_accepts_only_the_bearer_form() {
+    let state = test_state().await;
+    seed_admin(&state, "root", "correct-horse").await;
+    let raw = seed_token(&state, "admin", 1, "global").await;
+    let app = test_router(state);
+
+    for (name, req) in [
+        ("no credential", token_post(None, None)),
+        ("X-API-Key", token_post(None, Some(("X-API-Key", raw.clone())))),
+        ("X-Auth-Token", token_post(None, Some(("X-Auth-Token", raw.clone())))),
+        ("Basic", token_post(Some("Basic dXNlcjpwYXNz".to_string()), None)),
+    ] {
+        let res = call(&app, req).await;
+        assert_eq!(res.status, StatusCode::UNAUTHORIZED, "case: {name}");
+        assert_eq!(
+            res.headers.get("WWW-Authenticate").and_then(|v| v.to_str().ok()),
+            Some("Bearer realm=\"{project_name}\""),
+            "case: {name}"
+        );
+    }
+
+    let query = Request::builder()
+        .method("POST")
+        .uri(format!("/api/v1/users/tokens?token={raw}"))
+        .header(axum::http::header::CONTENT_TYPE, "application/json")
+        .body(Body::from(json!({"name": "ci"}).to_string()))
+        .expect("build request");
+    assert_eq!(call(&app, query).await.status, StatusCode::UNAUTHORIZED);
+
+    let bad = call(&app, token_post(Some("Bearer adm_doesnotexist".to_string()), None)).await;
+    assert_eq!(bad.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        bad.headers.get("WWW-Authenticate").and_then(|v| v.to_str().ok()),
+        Some("Bearer realm=\"{project_name}\", error=\"invalid_token\"")
+    );
+}
+
+// token_post builds POST /api/v1/users/tokens with an optional Authorization value or one extra header.
+fn token_post(authorization: Option<String>, extra: Option<(&str, String)>) -> Request<Body> {
+    let mut builder = Request::builder()
+        .method("POST")
+        .uri("/api/v1/users/tokens")
+        .header(axum::http::header::CONTENT_TYPE, "application/json");
+    if let Some(value) = authorization {
+        builder = builder.header(axum::http::header::AUTHORIZATION, value);
+    }
+    if let Some((name, value)) = extra {
+        builder = builder.header(name, value);
+    }
+    builder
+        .body(Body::from(json!({"name": "ci", "scope": "read"}).to_string()))
+        .expect("build request")
+}
+
+// seed_token inserts an admin-owned token with the given scope and returns the raw value.
+async fn seed_token(
     state: &{project_name}::state::AppState,
     owner_type: &str,
     owner_id: i64,
-    scopes: &[&str],
+    scope: &str,
 ) -> String {
     use {project_name}::models::auth::new_token_raw;
-    use {project_name}::models::token::{ApiToken, TOKEN_PREFIX_ADMIN};
+    use {project_name}::models::token::{Token, TOKEN_PREFIX_ADMIN};
 
     let (raw, token_hash) = new_token_raw(TOKEN_PREFIX_ADMIN).expect("token");
-    let token = ApiToken {
+    let token = Token {
         id: 0,
         owner_type: owner_type.to_string(),
         owner_id,
+        name: format!("seed-{scope}"),
         token_hash,
-        name: "seed".to_string(),
-        scopes: serde_json::to_string(scopes).expect("scopes"),
-        created_at: chrono::Utc::now().timestamp(),
+        token_prefix: raw.chars().take(8).collect(),
+        scope: scope.to_string(),
         expires_at: None,
-        last_used: None,
-        revoked: false,
+        last_used_at: None,
+        created_at: chrono::Utc::now().timestamp(),
     };
-    state.db.create_api_token(&token).await.expect("seed token");
+    state.db.create_token(&token).await.expect("seed token");
     raw
+}
+
+// seed_user inserts one user with a known password.
+async fn seed_user(state: &{project_name}::state::AppState, username: &str, password: &str) {
+    let hash = hash_password(password).expect("hash");
+    let now = chrono::Utc::now().timestamp();
+    state
+        .db
+        .create_user(username, &format!("{username}@test.local"), &hash, now)
+        .await
+        .expect("seed user");
+}
+
+// One login serves both account types: admins land on the admin panel, users on /users,
+// and `?redirect=` is honoured only for same-site paths.
+#[tokio::test]
+async fn shared_login_redirects_by_account_type() {
+    let state = test_state().await;
+    seed_admin(&state, "root", "correct-horse").await;
+    seed_user(&state, "alice", "hunter2-hunter2").await;
+    let app = test_router(state);
+
+    let admin = call(
+        &app,
+        json_post("/server/auth/login", json!({"login": "root", "password": "correct-horse"}), None),
+    )
+    .await;
+    assert_eq!(admin.status, StatusCode::OK);
+    assert_eq!(admin.body["data"]["account_type"], json!("admin"));
+    assert_eq!(admin.body["data"]["redirect"], json!("/server/administration"));
+    assert!(admin.set_cookie().expect("cookie").starts_with("admin_session="));
+
+    let user = call(
+        &app,
+        json_post("/server/auth/login", json!({"login": "alice", "password": "hunter2-hunter2"}), None),
+    )
+    .await;
+    assert_eq!(user.status, StatusCode::OK);
+    assert_eq!(user.body["data"]["account_type"], json!("user"));
+    assert_eq!(user.body["data"]["redirect"], json!("/users"));
+    assert!(user.set_cookie().expect("cookie").starts_with("user_session="));
+
+    let same_site = call(
+        &app,
+        json_post(
+            "/server/auth/login?redirect=/users/tokens",
+            json!({"login": "alice", "password": "hunter2-hunter2"}),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(same_site.body["data"]["redirect"], json!("/users/tokens"));
+
+    let offsite = call(
+        &app,
+        json_post(
+            "/server/auth/login?redirect=//evil.test",
+            json!({"login": "alice", "password": "hunter2-hunter2"}),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(offsite.body["data"]["redirect"], json!("/users"));
 }
 ```
 
@@ -4055,7 +4537,7 @@ async fn register_happy_path_creates_session() {
     let res = call(
         &app,
         json_post(
-            "/api/v1/auth/register",
+            "/api/v1/server/auth/register",
             register_body("alice", "alice@test.local", "hunter2-hunter2"),
             None,
         ),
@@ -4078,20 +4560,36 @@ async fn register_rejects_invalid_input() {
     let state = test_state().await;
     let app = test_router(state);
 
+    // A reserved name (listed, digit-suffixed, or NFKC-folded) is answered exactly like a taken one.
+    for name in ["admin", "root2", "\u{ff41}dmin"] {
+        let res = call(
+            &app,
+            json_post(
+                "/api/v1/server/auth/register",
+                register_body(name, "reserved@test.local", "hunter2-hunter2"),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status, StatusCode::CONFLICT, "reserved: {name}");
+        assert_eq!(res.body["error"], json!("USERNAME_TAKEN"), "reserved: {name}");
+        assert_eq!(res.body["message"], json!("That username is already taken"), "reserved: {name}");
+    }
+
     let cases = vec![
         ("short password", register_body("bob", "bob@test.local", "short"), StatusCode::BAD_REQUEST),
         ("bad email", register_body("bob", "not-an-email", "hunter2-hunter2"), StatusCode::BAD_REQUEST),
         ("bad username", register_body("b", "bob@test.local", "hunter2-hunter2"), StatusCode::BAD_REQUEST),
     ];
     for (name, body, expected) in cases {
-        let res = call(&app, json_post("/api/v1/auth/register", body, None)).await;
+        let res = call(&app, json_post("/api/v1/server/auth/register", body, None)).await;
         assert_eq!(res.status, expected, "case: {name}");
         assert_eq!(res.body["ok"], json!(false), "case: {name}");
     }
 
     let malformed = Request::builder()
         .method("POST")
-        .uri("/api/v1/auth/register")
+        .uri("/api/v1/server/auth/register")
         .header(axum::http::header::CONTENT_TYPE, "application/json")
         .body(Body::from("{"))
         .expect("build request");
@@ -4106,7 +4604,7 @@ async fn register_rejects_taken_username_and_email() {
     let first = call(
         &app,
         json_post(
-            "/api/v1/auth/register",
+            "/api/v1/server/auth/register",
             register_body("carol", "carol@test.local", "hunter2-hunter2"),
             None,
         ),
@@ -4117,7 +4615,7 @@ async fn register_rejects_taken_username_and_email() {
     let dup_username = call(
         &app,
         json_post(
-            "/api/v1/auth/register",
+            "/api/v1/server/auth/register",
             register_body("carol", "other@test.local", "hunter2-hunter2"),
             None,
         ),
@@ -4129,7 +4627,7 @@ async fn register_rejects_taken_username_and_email() {
     let dup_email = call(
         &app,
         json_post(
-            "/api/v1/auth/register",
+            "/api/v1/server/auth/register",
             register_body("carol2", "carol@test.local", "hunter2-hunter2"),
             None,
         ),
@@ -4154,7 +4652,7 @@ async fn user_login_happy_path_and_me_route() {
     let login = call(
         &app,
         json_post(
-            "/api/v1/auth/login",
+            "/server/auth/login",
             json!({"login": "dave@test.local", "password": "hunter2-hunter2"}),
             None,
         ),
@@ -4164,7 +4662,7 @@ async fn user_login_happy_path_and_me_route() {
     let cookie = login.set_cookie().expect("session cookie");
     let cookie_pair = cookie.split(';').next().expect("cookie pair").to_string();
 
-    let me = call(&app, get_request("/api/v1/auth/me", Some(&cookie_pair))).await;
+    let me = call(&app, get_request("/api/v1/users/settings", Some(&cookie_pair))).await;
     assert_eq!(me.status, StatusCode::OK);
     assert_eq!(me.body["data"]["username"], json!("dave"));
     // The hash must never be serialized to a client.
@@ -4186,7 +4684,7 @@ async fn user_login_is_identical_for_unknown_user_and_wrong_password() {
     let unknown = call(
         &app,
         json_post(
-            "/api/v1/auth/login",
+            "/server/auth/login",
             json!({"login": "nobody@test.local", "password": "hunter2-hunter2"}),
             None,
         ),
@@ -4195,7 +4693,7 @@ async fn user_login_is_identical_for_unknown_user_and_wrong_password() {
     let wrong = call(
         &app,
         json_post(
-            "/api/v1/auth/login",
+            "/server/auth/login",
             json!({"login": "erin@test.local", "password": "wrong-password"}),
             None,
         ),
@@ -4213,10 +4711,10 @@ async fn me_route_rejects_missing_and_expired_sessions() {
     let state = test_state().await;
     let app = test_router(state);
 
-    let missing = call(&app, get_request("/api/v1/auth/me", None)).await;
+    let missing = call(&app, get_request("/api/v1/users/settings", None)).await;
     assert_eq!(missing.status, StatusCode::UNAUTHORIZED);
 
-    let stale = call(&app, get_request("/api/v1/auth/me", Some("user_session=deadbeef"))).await;
+    let stale = call(&app, get_request("/api/v1/users/settings", Some("user_session=deadbeef"))).await;
     assert_eq!(stale.status, StatusCode::UNAUTHORIZED);
 }
 
@@ -4229,7 +4727,7 @@ async fn user_login_rate_limits_after_five_attempts() {
         let res = call(
             &app,
             json_post(
-                "/api/v1/auth/login",
+                "/server/auth/login",
                 json!({"login": "nobody@test.local", "password": "wrong-password"}),
                 None,
             ),
@@ -4240,7 +4738,7 @@ async fn user_login_rate_limits_after_five_attempts() {
     let limited = call(
         &app,
         json_post(
-            "/api/v1/auth/login",
+            "/server/auth/login",
             json!({"login": "nobody@test.local", "password": "wrong-password"}),
             None,
         ),
@@ -4263,7 +4761,7 @@ fn session_cookie_carries_all_security_attributes() {
 }
 ```
 
-Private-registration mode is covered the same way: build a second `test_state()` with `cfg.server.auth.users.registration.mode = "private"`, post the same register body, and assert `StatusCode::NOT_FOUND`. Every remaining handler in Step 8 — invite, accept-invite, password change, password reset request/confirm, email verify, token list/revoke, org CRUD and membership, domain add/verify — gets its own file following this exact harness and the same six categories.
+Private-registration mode is covered the same way: build a second `test_state()` with `cfg.server.auth.users.registration.mode = "private"`, post the same register body, and assert `StatusCode::NOT_FOUND`. Every remaining handler in Step 8 — invite, accept-invite, password change, password reset (forgot/reset), email verify, token list/revoke (assert a duplicate token name is `409 TOKEN_NAME_TAKEN` and the raw token is `{prefix}{32 alphanumeric}`), org CRUD and membership, domain add/verify — gets its own file following this exact harness and the same six categories.
 
 ---
 

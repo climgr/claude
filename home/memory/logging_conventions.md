@@ -24,14 +24,14 @@ Apache Combined Log Format:
 
 Example:
 ```
-192.168.1.1 - - [13/May/2026:10:58:00 -0400] "GET /api/health HTTP/1.1" 200 42 "-" "curl/8.5.0"
+192.168.1.1 - - [13/May/2026:10:58:00 -0400] "GET /server/healthz HTTP/1.1" 200 42 "-" "curl/8.5.0"
 ```
 
-Use this format for any HTTP-facing service. Keeps compatibility with `fail2ban`, `goaccess`, `awstats`, and standard log analysis tools.
+Default format is `apache`; `nginx` and `json` are also available. Use this format for any HTTP-facing service. Keeps compatibility with `fail2ban`, `goaccess`, `awstats`, and standard log analysis tools.
 
-### auth.log — Authentication events
+### security.log — Security and authentication events
 
-Syslog format:
+Default format `fail2ban` (also `syslog`, `cef`, `json`, `text`). Syslog-style example:
 
 ```
 {Month} {DD} {HH}:{MM}:{SS} {hostname} {program}[{pid}]: {message}
@@ -59,19 +59,19 @@ Example:
 
 Levels (uppercase, bracket-wrapped): `DEBUG`, `INFO`, `WARN`, `ERROR`, `FATAL`.
 
-### app.log (also named `{project_name}.log` for system services) — General structured log
+### server.log — Application events (text or json)
 
 logfmt (key=value pairs) — machine-readable, human-scannable, grep-friendly:
 
 ```
-time=2026-05-13T10:58:00-04:00 level=INFO msg="server started" addr=:8080 version=1.2.0
+time=2026-05-13T10:58:00-04:00 level=INFO msg="server started" addr=[::]:{port} version=1.2.0
 time=2026-05-13T10:58:05-04:00 level=WARN msg="rate limit hit" ip=10.0.0.5 path=/api/upload
 ```
 
 Alternatively, plain timestamped lines for simpler scripts:
 
 ```
-2026-05-13T10:58:00-04:00 INFO  server started on :8080
+2026-05-13T10:58:00-04:00 INFO  server started on [::]:{port}
 2026-05-13T10:58:05-04:00 WARN  rate limit hit for 10.0.0.5
 ```
 
@@ -83,14 +83,29 @@ When writing to syslog or journald directly (via `logger`, Go's `log/syslog`, or
 casci[1234]: Failed login for user admin from 192.168.1.50
 ```
 
+### Health-check requests
+
+Successful (2xx) health requests are never written to `access.log` or to the console request line, with no setting to turn it off. Non-2xx health responses are always logged.
+
+### Startup output
+
+- One event = one line, as a plain-text log line; no decorated duplicates (`✅ ...`, `📡 ...`) — the banner is the only decorated output
+- Only the banner and log lines go to the console at startup; no separate "Ready" or "feature enabled" lines
+- The banner is built as one string and written in ONE write while holding the logger lock, so no log line lands inside it
+- Banner header: `{app} · {version}`
+- A disabled optional feature logs nothing at INFO or above
+- A failure of an enabled feature logs `Failed to start {feature}: {reason}` once at WARN
+
 ## What Belongs in Each Log
 
 | Log file | What to log | What NOT to log |
 |----------|------------|-----------------|
 | `access.log` | Every HTTP request/response | Request bodies, passwords, tokens |
-| `auth.log` | Login attempts, token events, lockouts | Passwords, raw tokens, session keys |
+| `security.log` | Login attempts, token events, lockouts | Passwords, raw tokens, session keys |
 | `error.log` | Errors, warnings, panics, retries | Debug noise in production, PII |
-| `app.log` | Startup, shutdown, config reload, background jobs | Verbose per-request debug in production |
+| `audit.log` | Security events (`json` only, machine-parseable) | Passwords, raw tokens |
+| `debug.log` | Debug output (dev mode; `text` or `json`) | Anything in production |
+| `server.log` | Startup, shutdown, config reload, background jobs | Verbose per-request debug in production |
 
 **Never log:** passwords, raw tokens, API keys, session cookies, credit card numbers, SSNs, or any credential. When the event itself must be recorded, **mask the value but preserve the key** — context stays, secret goes:
 
@@ -218,7 +233,7 @@ Use `tracing` + `tracing-subscriber` with a plain formatter for file output:
 
 ```rust
 // File appender — always plain text
-let file_appender = tracing_appender::rolling::daily("/var/log/myapp", "app.log");
+let file_appender = tracing_appender::rolling::daily("/var/log/myapp", "server.log");
 let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
 tracing_subscriber::fmt()

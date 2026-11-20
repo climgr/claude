@@ -119,11 +119,11 @@ db.SetConnMaxIdleTime(1 * time.Minute)
 
 | Setting | SQLite | PostgreSQL |
 |---------|--------|-----------|
-| `MaxOpenConns` | 1 (SQLite is not concurrent-write safe) | 25 (tune per server) |
+| `MaxOpenConns` | writeDB 1, readDB pooled (see contract) | 25 (tune per server) |
 | `MaxIdleConns` | 1 | 5 |
 | `ConnMaxLifetime` | 30 min | 5 min |
 
-SQLite: open with `?_journal_mode=WAL&_busy_timeout=5000` for better concurrent read performance and write retry behavior.
+SQLite pooling is governed by the SQLite Concurrency Contract below (two handles per file), not by this table.
 
 ---
 
@@ -165,7 +165,7 @@ return tx.Commit()
 ## SQLite-Specific
 
 - Default database path: `{db_dir}/server.db` and `{db_dir}/users.db` (see `{project_dir}/IDEA.md` for platform-specific `{db_dir}`)
-- Always open with `?_journal_mode=WAL` for concurrent reads
+- Concurrency, WAL, busy timeout, handles: see "SQLite Concurrency Contract" below
 - Always open with `?_foreign_keys=on` to enforce FK constraints
 - Use `VACUUM` sparingly — only on user request or scheduled maintenance, never inline
 - Backups: `sqlite3 src.db ".backup dst.db"` or the `VACUUM INTO` statement — never `cp` an open database file
@@ -189,3 +189,46 @@ if err != nil {
 }
 return &user, nil
 ```
+
+---
+
+## SQLite Concurrency Contract
+
+Fixes `database is locked` (`SQLITE_BUSY`). Applies to every SQLite file the application opens; libsql/Turso is remote and not covered.
+
+- `journal_mode=WAL` and `synchronous=NORMAL` set on open; check the `journal_mode` pragma result — anything other than `wal` logs an ERROR and refuses to start
+- `busy_timeout=10000` on EVERY connection (set through the DSN so each pooled connection gets it)
+- Two handles per SQLite file: `writeDB` (1 open conn, `_txlock=immediate`) and `readDB` (`query_only(1)`, pooled). Only the store layer sees them, through `Write(ctx, fn)` and `Read(ctx)`
+- All writes (and any read-then-write flow) run inside ONE `Write` transaction
+- `Write` retries `SQLITE_BUSY`/`SQLITE_LOCKED` up to 5 times with exponential backoff and jitter
+- Cleanup, retention and import work in batches of at most 500 rows per transaction
+- Hot counters (rate limits, metrics, `last_used`) live in memory and are flushed periodically and on shutdown — never written per request
+- On shutdown: `PRAGMA wal_checkpoint(TRUNCATE)`, then close `readDB`, then `writeDB`
+- Local disk only — never NFS, SMB or FUSE
+- A concurrency test runs 20 writer + 20 reader goroutines against a temporary database and asserts zero `database is locked` errors
+
+---
+
+## Connection Strings
+
+The database and cache each accept ONE full URL: `server.database.url` and `server.cache.url`.
+
+- `DATABASE_URL`, `CACHE_URL` and `DATABASE_DRIVER` are first-run (init-only) seeds and are ignored afterwards
+- The URL scheme picks the driver: `sqlite` (file path), `libsql`/`turso`, `postgres`, `mysql`/`mariadb`, `mssql`, `mongodb`; cache: `valkey`/`redis`
+- TLS is on only when the URL asks for it, then enabled automatically; the certificate is NOT verified by default (verification is opt-in)
+- Passwords are accepted as typed — the user does not encode them
+- A URL that carries a credential is saved to `secrets.yml`; a URL without one stays in `server.yml`
+- Logs and output show only the redacted form (`scheme://user:********@host:port/name`)
+- A rejected URL never falls back to another database
+
+---
+
+## Config Files
+
+`secrets.yml` (mode `0600`) holds credentials; `server.yml` and `yaml.d/` are node config. Merge order: defaults, `server.yml`, `yaml.d/` drop-ins in byte-wise filename order, `secrets.yml`; CLI flags and environment variables rank above all of them.
+
+---
+
+## Credentials Storage
+
+API credentials live in a single `tokens` table, stored hashed (SHA-256); there is no separate `api_keys` table.

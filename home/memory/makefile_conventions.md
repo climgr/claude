@@ -11,6 +11,7 @@ type: user
 - **`VERSION` from `release.txt`** — never hardcode; see `~/.claude/memory/version_conventions.md`
 - **`@` prefix suppresses echo** — every recipe line that is not intentional debug output uses `@`
 - **`help` is always the first target** — `make` alone prints the help screen
+- **Never used in CI** — workflows run explicit commands with all env vars set; they do not call `make`
 - **Local only — no outbound writes** — the Makefile is a local developer tool; it must never push, publish, or write to any remote system. Specifically forbidden in any Makefile target: `docker push`, `docker buildx ... --push`, `git commit`, `git push`, `git tag`, `npm publish`, `cargo publish`, `gh release`, `glab release`, or any equivalent. `docker pull` is allowed — fetching images and dependencies (remote → local) is fine; sending artifacts or commits outward (local → remote) is not.
 
 ---
@@ -25,11 +26,17 @@ PROJECTORG  := $(shell git remote get-url origin 2>/dev/null | \
     sed -E 's|.*/([^/]+)/[^/]+(\.git)?$$|\1|' || \
     basename "$$(dirname "$$(pwd)")")
 
-VERSION    ?= $(shell cat release.txt 2>/dev/null || echo "devel")
-BUILD_DATE := $(shell date +"%a %b %d, %Y at %H:%M:%S %Z")
-COMMIT_ID  := $(shell git rev-parse --short=7 HEAD 2>/dev/null || echo "N/A")
-PLATFORMS  ?= linux/amd64,linux/arm64
+VERSION       ?= $(shell cat release.txt 2>/dev/null || echo "devel")
+BUILD_EPOCH   := $(shell date -u +%s)
+BUILD_DATE    := $(shell date -u -d @$(BUILD_EPOCH) +"%Y-%m-%dT%H:%M:%SZ")
+COMMIT_ID     := $(shell git rev-parse --short=7 HEAD 2>/dev/null || echo "N/A")
+OFFICIAL_SITE := $(shell [ -f site.txt ] && cat site.txt || echo "$${OFFICIAL_SITE:-}")
+PLATFORMS     ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 freebsd/amd64 freebsd/arm64
 ```
+
+- `BUILD_EPOCH` is captured ONCE; `BUILD_DATE` (RFC 3339 UTC) is derived from it, never captured independently
+- `PLATFORMS` is space-separated (consumed by shell for-loops) across 8 OS/arch pairs: linux, darwin, windows, freebsd x amd64, arm64
+- `OFFICIAL_SITE` comes from `site.txt` (single line, URL only), else the env var, else empty — never inferred
 
 Use `:=` (immediate) for shell-computed values — evaluated once at parse time.
 Use `?=` for overridable variables — allows `make build VERSION=1.2.3-rc1` or `make docker PLATFORMS=linux/amd64`.
@@ -113,9 +120,13 @@ All build-time tool invocations run inside Docker — language files define the 
 # Shared pattern — each language substitutes its own image, cache vars, and mounts
 # ?= honors host env var override
 CACHE_DIR ?= $(HOME)/.cache/{lang}
+# resource limits, overridable
+DOCKER_MEM  ?= 4g
+DOCKER_CPUS ?= 2
 
 LANG_DOCKER := docker run --rm \
     --name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+    --memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) \
     -v $(PWD):/app \
     -v $(CACHE_DIR):/root/.cache/{lang} \
     -w /app \

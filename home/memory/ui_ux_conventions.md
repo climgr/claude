@@ -381,7 +381,7 @@ Every web UI footer uses this exact row order, centered, top to bottom:
 
 1. **Onion address** (only when Tor is enabled and running): 🧅 icon + the full `.onion` address in a monospace code pill + copy-to-clipboard button with visible "Copied!" feedback
 2. **Page links**: About • Privacy • Contact • Help
-3. **Branding**: Made with ❤️ • {project_version}
+3. **Branding**: Made with ❤️ • {project_version} — "Made with" links to `{PLATFORM_REPO_URL}` with `target="_blank"`
 4. **Build stamp**: `Last update: {build_datetime}` in human-readable format `%B %-d, %Y at %H:%M:%S %Z` (e.g. `December 4, 2025 at 13:05:13 EST`), linked to the health endpoint
 
 Rules:
@@ -412,6 +412,13 @@ Use the full CSS variable block from the **Design Token System** section above �
 | Theme toggle click | Client JS enhancement — swap `data-theme` without reload |
 | Copy to clipboard | Client JS — browser API |
 | Form feedback | Client JS — UX enhancement only |
+
+### Viewport, drawer navigation, accent and consent
+
+- **Never bare `100vh`** — use `min-height: 100dvh` (or `height: 100dvh`) so mobile browser bars do not clip content; add `env(safe-area-inset-*)` padding on anything touching a screen edge (drawer, toast, banner, bottom actions)
+- **No-JS hamburger/drawer** — a checkbox (`.nav-checkbox`) toggles the drawer; hamburger below 768px, inline links from 768px; drawer `height: 100dvh; width: min(280px, 85vw)`; the scrim `<label>` closes it; while open, `body:has(.nav-checkbox:checked) { overflow: hidden }`; JavaScript (overflow detection, Esc, focus handling) is an enhancement only
+- **Single accent** — one brand color `web.ui.accent` (`#RRGGBB`) in `{config_dir}/yaml.d/branding.yml` drives the primary interactive color (the template names it `--color-primary`; this file's `--accent` family is the equivalent token set)
+- **Cookie-consent banner** — non-essential cookies and tracking are opt-in only: nothing non-essential runs until the visitor accepts; there is no opt-out mode
 
 ---
 

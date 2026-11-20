@@ -116,7 +116,7 @@ secret-scan:
     # full history required
     GIT_DEPTH: 0
   script:
-    - trufflehog git file://. --since-commit HEAD~1 --fail
+    - trufflehog git file://. --since-commit HEAD~1 --results=verified,unknown --exclude-paths=.github/trufflehog-exclude.txt --fail
   rules:
     - if: $CI_COMMIT_BRANCH
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
@@ -153,6 +153,8 @@ policy-check:
     - if: $CI_COMMIT_BRANCH
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
 ```
+
+Range scans block on `verified` and `unknown`; a full-history scan (schedule) uses `--results=verified` instead. See `cicd_conventions.md` "Secret Scanning Per Provider" for the exclude file and allowlist rules.
 
 **Security rules specific to GitLab:**
 - Never use `CI_JOB_TOKEN` with write access (registry push, API write) in pipelines triggered by fork MRs

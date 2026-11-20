@@ -92,41 +92,39 @@ Never use a tag reference (`@v4`) — tags are mutable. Always pin to the commit
 
 ## Secret Scanning (truffleHog)
 
-Use the `trufflesecurity/trufflehog@{sha}` composite action — never inline `docker run`. For Go/Rust/Android projects use the maintained image directly; for other languages use the `:build` toolchain image via `ensure-build-image`.
+Use the `trufflesecurity/trufflehog@{sha}` composite action — never inline `docker run`. `secret-scan` is a host-runner job on every language: no `container:`, no `needs` (it does not wait for `ensure-build-image`), `fetch-depth: 0`.
 
 ```yaml
-# Go/Rust/Android: use maintained image directly — no ensure-build-image
 secret-scan:
   runs-on: ubuntu-latest
-  container:
-    # or casjaysdev/rust:latest
-    image: casjaysdev/go:latest
   steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       with:
         fetch-depth: 0
+    - name: Scope
+      id: scope
+      run: |
+        if [ "${{ gitea.event_name }}" = "pull_request" ]; then
+          echo "base=${{ gitea.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+          echo "head=${{ gitea.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          echo "results=verified,unknown" >> "$GITHUB_OUTPUT"
+        elif [ "${{ gitea.event_name }}" = "push" ] && [ "${{ gitea.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+          echo "base=${{ gitea.event.before }}" >> "$GITHUB_OUTPUT"
+          echo "head=${{ gitea.event.after }}" >> "$GITHUB_OUTPUT"
+          echo "results=verified,unknown" >> "$GITHUB_OUTPUT"
+        else
+          echo "base=" >> "$GITHUB_OUTPUT"
+          echo "head=" >> "$GITHUB_OUTPUT"
+          echo "results=verified" >> "$GITHUB_OUTPUT"
+        fi
     - uses: trufflesecurity/trufflehog@{sha}
       with:
-        base: ${{ gitea.event.before }}
-        head: ${{ gitea.event.after }}
-        extra_args: --only-verified
-
-# Other languages: gate on ensure-build-image
-secret-scan:
-  needs: ensure-build-image
-  runs-on: ubuntu-latest
-  container:
-    image: ${{ needs.ensure-build-image.outputs.image }}
-  steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      with:
-        fetch-depth: 0
-    - uses: trufflesecurity/trufflehog@{sha}
-      with:
-        base: ${{ gitea.event.before }}
-        head: ${{ gitea.event.after }}
-        extra_args: --only-verified
+        base: ${{ steps.scope.outputs.base }}
+        head: ${{ steps.scope.outputs.head }}
+        extra_args: --results=${{ steps.scope.outputs.results }} --exclude-paths=.github/trufflehog-exclude.txt
 ```
+
+Range scans (PR, push to an existing branch) block on `verified` and `unknown`; full-history scans (new branch, schedule, manual run) block on `verified` only. `--only-verified` is not used. See `cicd_conventions.md` "Secret Scanning Per Provider" for the exclude file and allowlist rules.
 
 truffleHog is Apache-2.0 — no license key required. Never substitute gitleaks (commercial license for org repos).
 

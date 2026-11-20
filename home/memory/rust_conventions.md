@@ -61,12 +61,16 @@ Source: `~/Projects/github/dockersrc/rust`. Alpine-based, rolling tag, stable + 
 
 ## Makefile — Standard Variables
 
+`BUILD_EPOCH` is the single captured build time (the build date is derived from it); `PLATFORMS` is space-separated; `OFFICIAL_SITE` comes from `site.txt`, else the env var, else empty.
+
 ```makefile
 PROJECT_NAME  := {project_name}
 ORGANIZATION  := {project_org}
 VERSION       := $(shell cat release.txt 2>/dev/null || echo "devel")
 COMMIT_ID     := $(shell git rev-parse --short=7 HEAD 2>/dev/null || echo "N/A")
-PLATFORMS     ?= linux/amd64,linux/arm64
+BUILD_EPOCH   := $(shell date -u +%s)
+OFFICIAL_SITE := $(shell [ -f site.txt ] && cat site.txt || echo "$${OFFICIAL_SITE:-}")
+PLATFORMS     ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 freebsd/amd64
 BINARIES_DIR  := ./binaries
 RELEASES_DIR  := ./releases
 
@@ -413,6 +417,7 @@ Suppress all terminal styling (colors, cursor changes) when `NO_COLOR` is set or
 - **No CDN/network fetch on first run** — all assets embedded at build time; binary works air-gapped
 - **`ring` is pre-approved** as a C-vendored exception (crypto)
 - Prefer `rustls` over OpenSSL: `reqwest = { ..., features = ["rustls-tls"], default-features = false }`
+- **Database: `sqlx`, parameterized queries only** — the SQLite Concurrency Contract applies; see `database_conventions.md`
 
 ## GUI Rules
 

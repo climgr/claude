@@ -11,19 +11,19 @@ You are a Go SERVER↔API migration auditor. The user has already replaced `AI.m
 
 ## Background: what changed between SERVER and API
 
-The SERVER and API templates differ significantly. The API template is a **zero-auth open API server**:
+The SERVER and API templates differ significantly. The API template has **no accounts, no admin panel, and no admin API** — owners are anonymous credential-only identities holding owner tokens:
 
 | Area | SERVER template | API template |
 |------|----------------|--------------|
 | PART 17 | ADMIN PANEL — full SSR HTML admin UI, isolated auth, separate admin sessions | EMAIL & NOTIFICATIONS — server notification emails only (no user account emails) |
-| Parts 18+ | Shift up by one vs API | Shift down by one vs SERVER |
-| Authentication | Full auth system: sessions, API tokens, agent tokens (adm_/usr_/org_ prefixes) | **None** — no auth layer at all; rate limiting is the sole abuse defense |
-| Admin API endpoints | PART 14: full admin API (`/api/{api_version}/server/...`) | **None** — no admin API endpoints; no admin operations via HTTP |
+| Parts 18–33 | SERVER 18–33 (Email … Client & Agent) | API 17–32 — shifted down by one vs SERVER (PART 0–16 are identical in both) |
+| Authentication | Shared `/server/auth/login` for admin and user accounts; sessions; unified `tokens` table (admin, user, org, agent tokens) | **Owner tokens only** — anonymous resource owners hold a primary token (cookie `{project_name}_owner_token_XXXXXX` / Bearer) plus linked tokens in the `api_tokens`/`owners` tables, managed at `/server/preferences/tokens`; no login, no sessions, no accounts; rate limiting remains the abuse defense |
+| Admin API endpoints | PART 14: full admin API (`/api/{api_version}/server/{admin_path}/...`) | **None** — no admin API endpoints; no `{admin_path}`; administration is `server.yml` + CLI only |
 | Configuration | Admin WebUI + server.yml + database sync | **File-only**: server.yml with hot-reload; no DB config sync, no admin WebUI |
-| Users / Orgs / Custom domains | SERVER PARTs 34–36 | **Absent** — no user management, no orgs, no custom domains |
-| Agent auth | Agent tokens required (`adm_agt_/usr_agt_/org_agt_` scopes) | **None** — agents connect without tokens |
+| Users / Orgs / Custom domains | SERVER PARTs 34–36 (optional) | **Absent** — no user management, no orgs, no custom domains; SERVER PART 37 (IDEA.md Reference) = API PART 33 |
+| Agent auth | Agent tokens required (`adm_agt_/usr_agt_/org_agt_` prefixes, unified `tokens` table) | **No agent token types** — the `adm_agt_/usr_agt_/org_agt_` prefixes do not exist; the CLI `--token` is an owner token |
 
-Parts 18 onward shift by one number (SERVER 18+ = API 17+). The PART 17 structural difference (Admin Panel vs Email) is accompanied by the removal of the entire auth/admin/user subsystem in API.
+Parts 18 through 33 shift by one number (SERVER 18+ = API 17+); SERVER 34–36 have no API counterpart and SERVER 37 = API 33. Verify with `grep -n '^# PART'` on the current templates before relying on any number. The PART 17 structural difference (Admin Panel vs Email) is accompanied by the removal of the entire auth/admin/user subsystem in API.
 
 ---
 
@@ -75,7 +75,7 @@ grep -rn -- "PART 17.*Admin\|Admin Panel\|frontend-rules" "{project_dir}/.claude
 
 ```bash
 # Admin API routes (present in SERVER, absent in API)
-grep -rn -- "/api/.*admin\|adminAPI\|AdminAPI\|/server/config" "{project_dir}/src" 2>/dev/null | grep -v "_test\.go" | head -20
+grep -rn -- "/api/.*admin\|adminAPI\|AdminAPI" "{project_dir}/src" 2>/dev/null | grep -v "_test\.go" | head -20
 
 # Auth middleware, session handling, token validation
 grep -rn -- "AuthMiddleware\|SessionMiddleware\|TokenValidat\|BearerToken\|apiToken\|agentToken" "{project_dir}/src" 2>/dev/null | grep -v "_test\.go" | head -20
@@ -124,9 +124,9 @@ Read: AI.md PART {N}
 For each admin panel artifact found:
 - Delete admin source dirs (`src/admin/`, etc.)
 - Delete admin HTML templates
-- Remove admin HTML route group from router (keep admin API routes)
+- Remove admin HTML route group from router (admin API routes are removed in Group D)
 - Remove `//go:embed` lines for admin HTML templates
-- Remove admin session handling (keep API token auth for admin endpoints)
+- Remove admin session handling (replaced by owner tokens in Group D)
 
 **Group B — Implement Email & Notifications (new PART 17)**
 
@@ -144,11 +144,11 @@ For each `.claude/rules` file or `docs/` file that referenced SERVER's PART 17 (
 
 **Group D — Remove auth system and admin API endpoints**
 
-Read AI.md PART 11 in full (Security & Logging for the API template — zero-auth). For each auth artifact found:
-- Remove all admin API routes (`/api/{api_version}/server/...`, `/api/{api_version}/admin/...`)
-- Remove auth middleware (session validation, token validation, bearer token parsing)
-- Remove agent token fields and `--token` CLI flag from agent binaries
-- Remove `{PROJECT_NAME}_AGENT_TOKEN` env var handling
+Read AI.md PART 11 in full (Security & Logging for the API template — owner tokens, no accounts). For each auth artifact found:
+- Remove all admin API routes (`/api/{api_version}/server/{admin_path}/...`, `/api/{api_version}/admin/...`); keep the public `/server/*` pages and `/api/{api_version}/server/preferences`
+- Remove the shared `/server/auth/login` flow, session handling, and account/admin middleware
+- Replace the unified `tokens` table (admin/user/org/agent tokens) with the API template's `owners` + `api_tokens` owner-token model (primary + linked tokens, `/server/preferences/tokens`, `owner_token` cookie)
+- Remove agent-token types: `{PROJECT_NAME}_AGENT_TOKEN` env var handling and agent `--token` handling (the CLI `--token` stays, as an owner token)
 - Remove admin password/token storage from the database schema
 - Verify no `adm_agt_/usr_agt_/org_agt_` token prefixes remain anywhere
 - Remove ConfigManager DB sync (file-only hot-reload per the API spec)
@@ -192,9 +192,10 @@ For each `.claude/rules` file or `docs/` file that referenced API's PART 17 (Ema
 
 **Group D — Add auth system and admin API endpoints**
 
-Read AI.md PART 14 in full (Admin API for the SERVER template). For each auth/admin artifact required:
-- Add auth middleware (session validation, token validation, bearer token parsing)
-- Add admin API routes (`/api/{api_version}/server/...`) as specified in PART 14
+Read AI.md PART 14 in full (Admin API for the SERVER template) and PART 11 (unified `tokens` table). For each auth/admin artifact required:
+- Add the shared `/server/auth/login` flow (admin and user accounts), sessions, and auth middleware (session validation, token validation, bearer token parsing)
+- Migrate owner tokens (`owners` + `api_tokens`) into the unified `tokens` table as the SERVER spec defines
+- Add admin API routes (`/api/{api_version}/server/{admin_path}/...`) as specified in PART 14
 - Add agent token fields and `--token` CLI flag to agent binaries
 - Add `{PROJECT_NAME}_AGENT_TOKEN` env var handling
 - Add admin password/token storage to the database schema (argon2id hashing)

@@ -1,6 +1,6 @@
 ---
 name: rust-lint
-description: Lint Rust projects for CasjaysDev convention violations — cargo on host, Cargo.toml release profile, binary naming, CLI flags, NO_COLOR, logging, forbidden patterns. Use before committing any Rust change.
+description: Lint Rust projects for CasjaysDev convention violations — Docker-only cargo builds, Cargo.toml release profile, binary naming, CLI flags, NO_COLOR, logging, forbidden patterns. Use before committing any Rust change.
 ---
 
 You are a Rust project linter enforcing CasjaysDev conventions. Check only what is listed below. Do not refactor, reformat, or suggest improvements outside these rules. Report findings as a numbered list; fix them only if explicitly asked.
@@ -22,7 +22,7 @@ You are a Rust project linter enforcing CasjaysDev conventions. Check only what 
 
 ### Makefile — required targets and format gate
 
-- Required targets: `build`, `release`, `test`, `clean`, `help`. Flag any that are absent.
+- Required targets: `dev`, `local`, `build`, `test`, `release`, `docker`, plus the `clean` helper. Flag any that are absent.
 - The `test` target must run `cargo fmt --check` before `cargo test` — format failure is a build failure. Flag a `test` target that invokes `cargo test` without a preceding `cargo fmt --check`.
 
 ### Cargo.toml — release profile (NON-NEGOTIABLE)
@@ -47,9 +47,10 @@ Flag any missing field or wrong value.
 
 ### Binary naming
 
-- Schema: `{project_name}-{os}-{arch}` using simplified OS names and GNU arch terms.
-- Valid OS terms: `linux`, `macos`, `windows`, `freebsd`. Flag `darwin` (Go term), `mac`, `osx`.
-- Valid arch terms: `x86_64`, `aarch64`. Flag `amd64`, `arm64` (Go terms).
+- Schema: `{project_name}-{os}-{arch}` (e.g. `{project_name}-linux-amd64`).
+- Valid OS terms: `linux`, `darwin`, `windows`, `freebsd`. Flag `macos`, `mac`, `osx`, or any other alias for `darwin`.
+- Valid arch terms: `amd64`, `arm64`. Flag `x86_64`, `aarch64`, or any GNU arch term.
+- Platforms: linux, darwin, windows x amd64/arm64, plus freebsd amd64 only (freebsd/arm64 is not a Rust target).
 - Windows binaries must append `.exe`. Flag if missing.
 - Flag any `-musl` suffix in output binary names — the Rust target triple is internal; it never appears in the filename.
 
@@ -86,8 +87,9 @@ Flag any missing field or wrong value.
 ### Standard CLI flags (binaries using clap)
 
 - Must use `clap` (derive API) for argument parsing — never hand-roll. Flag manual `std::env::args()` loops.
-- Must support `-h`/`--help` and `-v`/`--version` (clap generates these; verify they are not suppressed with `disable_help_flag` or `disable_version_flag`).
-- Must support `--debug` and `--color` (values: `auto` (default), `yes`, `no`). Flag if absent or if default is not `auto`.
+- Must support the shared flags `--help`, `--version`, `--shell`, `--debug`, `--color`, `--lang`. Flag any that are absent; verify help/version are not suppressed with `disable_help_flag` or `disable_version_flag`.
+- Only `-h` (help) and `-v` (version) may have short forms; every other flag is long-form only. Flag any other short flag.
+- `--color` values: `auto` (default), `yes`, `no`. Flag if the default is not `auto`.
 - Both `--color auto` and `--color=auto` must work — clap handles this natively; no extra parsing needed.
 - `--help` and `--version` must never be gated behind privilege checks. Flag any `nix::unistd::getuid()` or capability check before help/version output.
 

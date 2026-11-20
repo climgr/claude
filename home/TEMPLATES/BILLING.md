@@ -36,7 +36,8 @@ This specification defines a complete billing and subscription management system
 - **Payment Provider Agnostic**: Supports 47+ payment gateways, all disabled by default
 - **Deployment Agnostic**: Cloud, on-premise, hybrid, or distributed
 - **Business Model Agnostic**: Subscription, one-time, usage-based, or hybrid pricing
-- **Configuration Method**: Web UI only, no config files or environment variables
+- **Configuration Method**: Admin UI writes provider credentials to `secrets.yml` (mode `0600`, encrypted at rest, never committed)
+- **Localization**: All user-facing strings are translated; keys follow the `errors.*` / `notifications.*` pattern
 
 ### What This Specification Defines
 - Billing state machines and transitions
@@ -1226,7 +1227,7 @@ Seller Details:
   - Legal business name
   - Address
   - Tax registration numbers
-  - Contact information
+  - Contact information (`server.contact.general.*`)
   
 Buyer Details:
   - Customer name
@@ -1485,7 +1486,7 @@ Error [❌]:
   - What went wrong
   - How to fix it
   - Alternative options
-  - Support contact
+  - Support contact (`server.contact.general.email`)
   
 Success [✓]:
   - What worked
@@ -2404,7 +2405,7 @@ Plugin Architecture:
 DON'T:
   - Store sensitive payment data directly
   - Hard-code provider credentials
-  - Use environment variables for provider config
+  - Put provider credentials anywhere other than `secrets.yml`
   - Enable providers by default
   - Skip tooltip implementation
   - Make synchronous external calls in transactions
@@ -2458,11 +2459,10 @@ No provider code runs unless:
 #### Configuration Storage
 ```
 Provider configurations stored in:
-  - Database (encrypted)
+  - `secrets.yml` (mode 0600, encrypted at rest, never committed)
   - Never in code
-  - Never in environment variables
-  - Never in config files
-  - Accessible only via admin UI
+  - Written by the admin UI
+  - Billing API keys live in the single hashed `tokens` table
   - Audited on every change
   - Includes tooltip content
 ```
@@ -2612,7 +2612,7 @@ BILLING-012: All providers failed
 
 **Total Available**: 47+ providers
 **Default Enabled**: 0 providers
-**Configuration Method**: Web UI only
+**Configuration Method**: Admin UI writes `secrets.yml`
 
 ### Version History
 
@@ -2625,7 +2625,7 @@ BILLING-012: All providers failed
 ## 📝 Critical Implementation Notes
 
 1. **All Payment Providers Disabled by Default**: System ships with 47+ provider integrations, ALL disabled
-2. **Web Configuration Only**: Provider credentials NEVER in code, environment variables, or config files
+2. **Credentials in secrets.yml Only**: Provider credentials NEVER in code or committed files; the admin UI writes `secrets.yml` (0600, encrypted at rest)
 3. **Integrated Help Required**: All provider setup instructions must be in-UI with tooltips
 4. **Never Store Sensitive Payment Data**: Always use tokenization
 5. **Always Generate Invoices**: Even if payment fails or all providers are down

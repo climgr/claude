@@ -169,7 +169,7 @@ Report the updated SHA table row(s) back to the caller. Do not commit — the ca
 
 | Gate | GitHub / Gitea / Forgejo | GitLab | Jenkins |
 |------|--------------------------|--------|---------|
-| Secret scan | `trufflesecurity/trufflehog@{sha}` action; `with: base: ${{ github.event.before }}, head: ${{ github.event.after }}`; `fetch-depth: 0` — **never** `base: ${{ github.event.repository.default_branch }}` (resolves to HEAD after push, skips scan) | Docker job: `trufflesecurity/trufflehog:latest`; `GIT_DEPTH: 0` | Docker step inside `Security` stage |
+| Secret scan | Host-runner job (no `container:`, no `needs`, plain runner image, `fetch-depth: 0`); `trufflesecurity/trufflehog@{sha}` with a scope step: PR = `base.sha`..`head.sha` and push = `before`..`after` with `--results=verified,unknown`; zero-SHA new branch / schedule / dispatch = full history with `--results=verified`; always `--exclude-paths=.github/trufflehog-exclude.txt`; no `--only-verified`; inline `trufflehog:ignore` allowlist — **never** `base: ${{ github.event.repository.default_branch }}` (resolves to HEAD after push, skips scan) | Docker job: `trufflesecurity/trufflehog:latest`; `GIT_DEPTH: 0`; `trufflehog git file://. --since-commit HEAD~1 --results=verified,unknown --exclude-paths=.github/trufflehog-exclude.txt --fail` (`--results=verified` for full history) | Docker step inside `Security` stage, same flags |
 | Workflow policy | Shell step: verify all `uses:` are 40-char SHA; block `pull_request_target` | Script step: verify Docker image digests are pinned; block untrusted variable injection | Groovy step: verify Docker image digests in `Jenkinsfile` |
 
 ### Conditional gates (add only when manifest exists)
@@ -183,6 +183,7 @@ Report the updated SHA table row(s) back to the caller. Do not commit — the ca
 
 ### Hard rules
 
+- **Audit check**: `.github/trufflehog-exclude.txt` must exist on every provider (one regex per line, no comments, only files the project does not author such as `^go\.sum$` / `^Cargo\.lock$` / `^AI\.md$`); flag its absence or any authored file listed in it
 - **Never use `gitleaks`** — requires a commercial license for org repos. Always use truffleHog
 - **GitHub / Gitea / Forgejo**: every `uses:` must be a 40-char SHA — never `@v4`, `@main`, `@master`
 - **GitLab / Jenkins**: every Docker image must be pinned by digest — never `:latest` in production CI jobs

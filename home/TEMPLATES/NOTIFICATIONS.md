@@ -62,7 +62,8 @@ This specification defines a complete notification system designed to be integra
 ### 1. Secure by Default
 **Principle**: All channels start disabled. Credentials are never exposed.
 - All notification channels disabled on installation (except SMTP on test success)
-- Web UI configuration only, no config files
+- Settings live in `server.yml` / `yaml.d/` (synced to the database in cluster mode); credentials live in `secrets.yml` (mode `0600`); the admin UI writes the owning area file
+- All user-facing strings are translated; keys follow the `errors.*` / `notifications.*` pattern
 - Credentials encrypted at rest
 - No sensitive data in logs
 - Automatic credential rotation support
@@ -163,7 +164,7 @@ User Preferences
 
 ### Channel Overview
 
-**CRITICAL**: All 30+ notification channels ship DISABLED by default. Each must be explicitly configured via web UI. 
+**CRITICAL**: All 30+ notification channels ship DISABLED by default. Each must be explicitly configured via the admin UI (which writes the config files). SMTP is re-tested every startup; failure disables email, logs a warning, and retries next start.
 **EXCEPTION**: SMTP automatically enables upon successful test connection.
 
 ### Available Channels by Category
@@ -390,7 +391,7 @@ MAINTENANCE: Temporarily offline
 
 ### SMTP Special Handling
 
-**UNIQUE BEHAVIOR**: SMTP is the only channel that auto-enables upon successful test.
+**UNIQUE BEHAVIOR**: SMTP is the only channel that auto-enables upon successful test. The connection is re-tested on every startup; failure disables email, logs a warning, and is retried next start.
 
 ### SMTP Configuration
 
@@ -398,103 +399,61 @@ MAINTENANCE: Temporarily offline
 
 SMTP can be configured through multiple methods, checked in this order:
 
-1. **Web UI Configuration** (Primary, always available)
-2. **Environment Variables** (Optional fallback, industry standard)
-3. **Auto-Detection** (Automatic local server detection)
+1. **Environment Variables** (`SMTP_*`; override file settings)
+2. **Configuration Files** (`server.yml` / `yaml.d/`, credentials in `secrets.yml`; the admin UI writes the owning area file)
+3. **Auto-Detection** (Automatic local server detection; the detected `host:port` is saved to `server.yml`)
 
 #### Environment Variable Support (Optional)
 
 **Standard SMTP Environment Variables**:
 ```bash
-# Core SMTP Settings
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USERNAME=user@example.com
 SMTP_PASSWORD=secret
-SMTP_FROM=noreply@example.com
+SMTP_TLS=auto
 SMTP_FROM_NAME="System Notifications"
-
-# Security Settings
-# true for SSL, false for STARTTLS/plain
-SMTP_SECURE=false
-# Enable STARTTLS
-SMTP_TLS=true
-# Verify certificates
-SMTP_REJECT_UNAUTHORIZED=true
-
-# Optional Settings
-SMTP_REPLY_TO=support@example.com
-# Connection timeout in ms
-SMTP_TIMEOUT=30000
-# Use connection pooling
-SMTP_POOL=true
-# Pool size
-SMTP_MAX_CONNECTIONS=5
-
-# Alternative Common Naming Conventions (also supported)
-MAIL_HOST=smtp.gmail.com
-MAIL_PORT=587
-MAIL_USERNAME=user@example.com
-MAIL_PASSWORD=secret
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
+SMTP_FROM_EMAIL=noreply@example.com
 ```
 
+`SMTP_TLS` is a mode: `auto`, `starttls`, `tls`, or `none` (default `auto`). No other aliases are supported.
+
 **Environment Variable Behavior**:
-- If valid environment variables are detected, they populate the web UI fields
-- Web UI configuration always takes precedence over environment variables
-- Environment variables are read-only hints, not the source of truth
-- Changes must still be made through web UI (environment vars are just initial values)
+- `SMTP_*` environment variables override the same settings in the configuration files
+- The admin UI writes the owning area file (`server.yml` / `yaml.d/`), with credentials in `secrets.yml`
 - Useful for containerized deployments and infrastructure-as-code
 
 #### Auto-Detection Sequence
-When no SMTP is configured (neither UI nor environment), the system automatically attempts:
-```
-1. Check for environment variables (populate UI if found)
-2. If no env vars, attempt localhost:25 (no auth)
-3. Then try 127.0.0.1:25 (no auth)
-4. Finally try 172.17.0.1:25 (Docker default, no auth)
+When no SMTP host is configured (neither files nor environment), the system tries each host on ports 25, 465, 587, in priority order:
 
-If any succeeds:
+| Priority | Host |
+|----------|------|
+| 1 | `127.0.0.1` (loopback) |
+| 2 | `172.17.0.1` (Docker bridge gateway) |
+| 3 | `{gateway_ip}` (default gateway) |
+| 4 | `{fqdn}` (detected FQDN) |
+| 5 | `{global_ipv4}` (global IPv4, if available) |
+| 6 | `mail.{fqdn}` |
+| 7 | `smtp.{fqdn}` |
+
+The first successful SMTP handshake (EHLO) wins:
   - SMTP is automatically ENABLED
-  - Configuration is saved to database (not env vars)
+  - The detected `host:port` is saved to `server.yml`
   - User is notified of auto-configuration
-  - Web UI shows the active configuration
-```
+  - If all fail, email features stay disabled (not an error)
+
+#### Connection Test
+- When a host is set, the connection is re-tested on every startup (EHLO)
+- Failure disables email, logs a warning, and the server keeps running; the test is retried on the next start
+
+#### TLS Mode `auto`
+`tls: auto` (the default) is decided per port: 25 and 587 (and any other port) start plain and upgrade with STARTTLS when offered; 465 is implicit TLS. A TLS hello is never sent to port 25. `AUTH` is sent only after TLS is established. Certificate verification is skipped only when `smtp.host` is a private-range IP literal; hostnames are always verified.
 
 #### Configuration Priority
 ```
-1. Web UI (if configured) - Always wins
-2. Environment Variables (if no UI config) - Populates UI
-3. Auto-detection (if neither) - Tests and saves
-
-Note: Environment variables are NEVER the active source,
-they only provide initial values for the UI.
-```
-
-#### Provider Presets (30+ providers)
-
-**Email Service Providers:**
-```yaml
-Gmail:
-  host: smtp.gmail.com
-  port: 587
-  security: STARTTLS
-  note: Requires app-specific password
-  
-Outlook/Hotmail:
-  host: smtp-mail.outlook.com
-  port: 587
-  security: STARTTLS
-  note: May need app password with 2FA
-  
-Yahoo:
-  host: smtp.mail.yahoo.com
-  port: 587
-  security: STARTTLS
-  note: Requires app password
-  
-[... 37 more providers ...]
+1. Environment Variables (SMTP_*) - Always win
+2. Configuration files (server.yml / yaml.d/, secrets.yml)
+3. Auto-detection (if neither) - Tests and saves to server.yml
 ```
 
 #### SMTP Configuration Fields
@@ -513,16 +472,16 @@ Configuration:
 ├── From Name: [___________] [?] Sender display name
 │   [ℹ️ From env: SMTP_FROM_NAME="Notifications"]
 ├── From Address: [___________] [?] Must be valid email
-│   [ℹ️ From env: SMTP_FROM=noreply@example.com]
+│   [ℹ️ From env: SMTP_FROM_EMAIL=noreply@example.com]
 ├── Reply-To: [___________] [?] Optional reply address
 └── [Test Connection] [Save]
 
 Environment Variable Notice:
 ┌─────────────────────────────────────────────┐
 │ ℹ️ Environment variables detected and loaded │
-│ These values are suggestions only.          │
-│ Changes here override environment variables. │
-│ To use different env vars, restart the app. │
+│ These values override the config files.     │
+│ Env-provided fields are read-only here.     │
+│ To change them, edit the env and restart.   │
 └─────────────────────────────────────────────┘
 
 Test Results:
@@ -533,12 +492,10 @@ Test Results:
 ```
 
 **UI Behavior with Environment Variables**:
-- Fields are pre-populated from environment variables on first load
-- Small info text shows which env var provided the value
+- Fields show the effective value; small info text shows which env var provided it
 - Password fields show as masked if env var is set
-- User can override any environment variable value
-- Saved configuration takes precedence over env vars
-- Clear button to remove saved config and revert to env vars
+- Environment variables override file values, so an env-provided field is read-only in the UI
+- Saving writes the owning area file; credentials go to `secrets.yml`
 
 ### SMTP Provider Categories
 
@@ -1767,7 +1724,7 @@ Format:
 # Example using Claude Code
 $ claude-code "Implement notification system with:
   - 30+ channels (all disabled except SMTP on test)
-  - Web UI configuration only
+  - Configuration in server.yml / yaml.d / secrets.yml, written by the admin UI
   - Integrated help system
   - Template management
   - User preferences"
@@ -1838,8 +1795,8 @@ Plugin Architecture:
   - Interface compliance
   
 Configuration Hierarchy:
-  - Web UI (primary, persistent)
-  - Environment Variables (SMTP only, initial values)
+  - Environment Variables (SMTP only, override files)
+  - Configuration files (persistent)
   - Auto-detection (fallback)
 ```
 
@@ -1863,33 +1820,26 @@ DON'T:
 ```javascript
 // Example SMTP configuration loader
 function loadSMTPConfig() {
-  // 1. Check database for saved configuration
-  const savedConfig = database.getSMTPConfig();
-  if (savedConfig) {
-    return savedConfig;
-  }
-  
-  // 2. Check environment variables
-  const envConfig = {
-    host: process.env.SMTP_HOST || 
-          process.env.MAIL_HOST || 
-          process.env.EMAIL_HOST,
-    port: process.env.SMTP_PORT || 
-          process.env.MAIL_PORT || 
-          process.env.EMAIL_PORT,
-    username: process.env.SMTP_USERNAME || 
-             process.env.MAIL_USERNAME,
-    password: process.env.SMTP_PASSWORD || 
-             process.env.MAIL_PASSWORD,
-    // ... other fields
+  // 1. Merge configuration files (server.yml, yaml.d/, secrets.yml)
+  const fileConfig = config.get('server.notifications.email.smtp');
+
+  // 2. Environment variables override file values
+  const merged = {
+    ...fileConfig,
+    ...definedOnly({
+      host: process.env.SMTP_HOST,
+      port: process.env.SMTP_PORT,
+      username: process.env.SMTP_USERNAME,
+      password: process.env.SMTP_PASSWORD,
+      tls: process.env.SMTP_TLS,
+    }),
   };
-  
-  if (envConfig.host) {
-    // Pre-populate UI with env values
-    return { ...envConfig, source: 'environment' };
+
+  if (merged.host) {
+    return merged;
   }
-  
-  // 3. Auto-detection
+
+  // 3. Auto-detection (saves the detected host:port to server.yml)
   return autoDetectSMTP();
 }
 ```
@@ -1901,10 +1851,10 @@ Environment Variables:
   - Never log password values
   - Mask in UI display
   - Don't expose in API responses
-  - Web UI overrides take precedence
+  - Environment variables override file values
   
 Storage:
-  - Save config to database when modified
+  - Save config to the owning area file when modified (credentials to `secrets.yml`)
   - Encrypt sensitive values at rest
   - Don't write back to env vars
   - Clear separation of concerns
@@ -1993,7 +1943,7 @@ End-to-End Tests:
 
 **Total Available**: 30 channels
 **Default Enabled**: 0 (SMTP auto-enables on successful test)
-**Configuration Method**: Web UI only
+**Configuration Method**: `server.yml` / `yaml.d/` / `secrets.yml`, written by the admin UI; `SMTP_*` env vars override
 
 ### State Diagrams
 
@@ -2051,8 +2001,8 @@ NOTIF-010: TTL expired
 
 1. **All Channels Disabled by Default**: System ships with 30+ channels, ALL disabled
 2. **SMTP Auto-Enables on Test**: Unique behavior - SMTP enables automatically on successful test
-3. **SMTP Environment Variables**: Optional support for standard SMTP env vars (initial values only)
-4. **Web Configuration Primary**: Web UI always takes precedence, env vars are just hints
+3. **SMTP Environment Variables**: Optional support for standard SMTP env vars (override file values)
+4. **Files Are the Source of Truth**: env vars override files; the admin UI writes the owning area file
 5. **Integrated Help Required**: All channel setup instructions in-UI with tooltips
 6. **Delivery Guarantee**: Every notification must be delivered or explicitly failed
 7. **User Control**: Clear preference management and unsubscribe options
@@ -2075,6 +2025,6 @@ NOTIF-010: TTL expired
 
 *This specification is designed to be completely implementation-agnostic and can be adapted to any technology stack, messaging requirements, or deployment environment. The notification system should integrate with your existing application while maintaining clear boundaries and separation of concerns.*
 
-*All 30+ notification channels are available but disabled by default (except SMTP which auto-enables on successful test). Configuration is done primarily through the web UI with integrated help and tooltips. SMTP uniquely supports optional environment variables following industry standards (SMTP_HOST, SMTP_PORT, etc.) for initial configuration values, though the web UI always takes precedence. No external documentation is required for channel setup.*
+*All 30+ notification channels are available but disabled by default (except SMTP which auto-enables on successful test). Configuration lives in `server.yml` / `yaml.d/` / `secrets.yml`, written by the admin UI with integrated help and tooltips. SMTP uniquely supports `SMTP_*` environment variables (SMTP_HOST, SMTP_PORT, etc.) that override file values. No external documentation is required for channel setup.*
 
 *AI tools can assist in development but are not required for production operation. The core notification logic is deterministic and does not require any machine learning or AI to function.*

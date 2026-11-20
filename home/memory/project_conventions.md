@@ -24,12 +24,12 @@ All relative file references (`AI.md`, `./src`, `./`) resolve from `$PWD`. Absol
 |------|------|----------------------|
 | **AI.md** | THE HOW — implementation spec, readonly copy of the type template (go/ or rust/). Never modified after initial copy. Placeholders resolve from IDEA.md at runtime. When the template is updated in claudemgr, re-copy this file — no merge needed because it was never touched. | No |
 | **SPEC.md** | Project-specific rule overrides — the only place where project rules may contradict the template or global conventions. Created at project setup (may be empty); content added only when a rule must actively differ. SPEC.md wins over AI.md which wins over global CLAUDE.md. | Yes — only when adding or changing rule overrides |
-| **IDEA.md** | THE WHAT — project intent, goal, and constraints only. Never the HOW. Three required sections (see below). | Yes |
+| **IDEA.md** | THE WHAT — project intent, goal, and constraints only. Never the HOW. Three required sections (see below). Its non-goals only scope optional capabilities; they never relax AI.md baseline rules. | Yes |
 | **TODO.AI.md** | AI-owned task list. Required when working on more than 2 items. Completed items are REMOVED (not marked done and left). | Yes |
 | **TODO.md** | Human-owned task list; AI **must** mark done when completed (leaving unmarked is misleading), never delete/empty entries | Limited |
 | **PLAN.AI.md** | AI-owned implementation plan — delete when the work it describes is fully committed | Yes |
 | **PLAN.md** | Human-owned plan; AI **must** mark done when completed, never delete entries or rewrite wholesale | Limited |
-| **CLAUDE.md** | Short loader pointing at AI.md and IDEA.md. No project-specific spec or rule content. | No |
+| **CLAUDE.md** | Short loader pointing at AI.md and IDEA.md. No project-specific spec or rule content. Mirrored byte-for-byte into `AGENTS.md` (a real file copy, never a symlink), kept in sync. | No |
 
 ## Rule hierarchy (highest precedence first)
 
@@ -42,7 +42,8 @@ Global CLAUDE.md ← baseline for all projects
 SPEC.md > AI.md > global CLAUDE.md. When files conflict, fix the lower-precedence file.
 
 **If SPEC.md and AI.md conflict, SPEC.md wins — that is its purpose.**
-**If AI.md and IDEA.md conflict, AI.md wins. Fix IDEA.md.**
+**No SPEC.md (or an empty one): AI.md alone is the authority.** SPEC.md is never created just to log an AI.md defect.
+**If AI.md and IDEA.md conflict, AI.md wins. Fix IDEA.md.** Never edit AI.md to match IDEA.md. If the product genuinely needs something AI.md forbids, STOP and ask the user — the answer is a SPEC.md rule override, and IDEA.md then states only the product-level behavior.
 
 **The WHAT/HOW boundary is strict:**
 - IDEA.md answers: what is this project, what must it do, what must it never do, what must it be compatible with
@@ -53,7 +54,7 @@ SPEC.md > AI.md > global CLAUDE.md. When files conflict, fix the lower-precedenc
 
 All AI tool configs follow the same split: **team config is committed; personal overrides, history, and cache are gitignored.** The canonical example is `.claude/settings.json` (committed) vs `.claude/settings.local.json` (gitignored). The same rule applies to every other tool. The full per-tool table — what to commit and what to ignore — is in `~/.claude/memory/gitignore_conventions.md`.
 
-**New project detection:** if AI.md or IDEA.md is missing → new project. Plan first: create IDEA.md, copy TEMPLATE.md as AI.md, write PLAN.AI.md and TODO.AI.md before touching code.
+**New project detection:** if AI.md or IDEA.md is missing → new project. Plan first: create IDEA.md, copy the type template as AI.md, create an empty SPEC.md, create the CLAUDE.md loader plus its AGENTS.md copy, write PLAN.AI.md and TODO.AI.md before touching code.
 
 **Partial IDEA.md:** if IDEA.md exists but is missing one or more of the three required sections, do not proceed with work — add the missing sections first. Ask the user for the missing information rather than guessing. A partial IDEA.md is treated as absent for the section(s) it is missing.
 
@@ -113,7 +114,7 @@ Placeholders in AI.md (e.g., `{project_name}`, `{PROJECT_ORG}`) are **reference 
 2. If not: detect values from directory structure (`basename "$PWD"`, `basename "$(dirname "$PWD")"`) — never guess
 3. Confirm with user before writing
 4. Create/update IDEA.md; set internal_name = project_name and internal_org = project_org (stable immediately)
-5. If an existing CLAUDE.md has real project details, migrate them into IDEA.md; keep CLAUDE.md as a short loader only
+5. If an existing CLAUDE.md has real project details, migrate them into IDEA.md; keep CLAUDE.md as a short loader only, and mirror the final root CLAUDE.md into AGENTS.md as a real file copy
 
 ## Directory layout
 
@@ -138,6 +139,7 @@ Placeholders in AI.md (e.g., `{project_name}`, `{PROJECT_ORG}`) are **reference 
 ├── AI.md
 ├── IDEA.md
 ├── CLAUDE.md
+├── AGENTS.md     # real-file copy of CLAUDE.md, never a symlink
 └── ...
 ```
 

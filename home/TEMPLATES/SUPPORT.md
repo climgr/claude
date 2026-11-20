@@ -76,11 +76,12 @@ This specification defines a complete support system designed to be integrated i
 - Touch-optimized interfaces for mobile devices
 - Reduced motion options for users with vestibular disorders
 
-### 4. Configuration Through UI Only
-**Principle**: All system configuration happens through web interfaces, no code or file editing required.
+### 4. Configuration Through UI
+**Principle**: System configuration happens through web interfaces; no code editing is required.
 - Admin configuration panel for system settings
 - Agent configuration panel for personal settings
-- No command-line or file-based configuration
+- The admin UI writes the owning config file; credentials are stored in `secrets.yml` (mode `0600`, encrypted at rest, never committed)
+- All user-facing strings are translated; keys follow the `errors.*` / `notifications.*` pattern
 - All settings have sensible defaults
 - Configuration changes take effect immediately (no restart required)
 
@@ -108,7 +109,7 @@ This specification defines a complete support system designed to be integrated i
 **Restrictions**:
 - Cannot view other tickets
 - Cannot access live chat
-- May require CAPTCHA for ticket submission
+- Anonymous ticket and contact submission follows the shape template's report-form antispam: signed single-use form token, honeypot, CAPTCHA on every anonymous submit with a no-JS fallback, and per-field `max_length`
 - Rate-limited ticket creation (configurable)
 
 #### 2. Registered User (Authenticated)
@@ -491,6 +492,7 @@ The bot comes with standard patterns that work for any system:
 ### Bot Interaction Flow
 
 #### Phase 1: Initial Contact (Mandatory Before Ticket Creation)
+Anonymous ticket submission follows the report-form antispam rules (see Guest User restrictions).
 ```
 User: Clicks "Get Support"
      ↓
@@ -1495,7 +1497,7 @@ Configurable notifications for:
 ### External Service Connections
 
 #### Email Services
-- SMTP configuration
+- SMTP configuration (follows the NOTIFICATIONS / SERVER SMTP canon)
 - API-based (SendGrid, SES, etc.)
 - Fallback providers
 - SPF/DKIM settings
@@ -1841,7 +1843,7 @@ Ask AI to verify:
 1. **Bot is Mandatory**: Users must interact with the bot before creating tickets
 2. **Support Mode is Required**: Agents cannot create tickets while in support mode
 3. **No AI in Production**: All pattern matching is deterministic logic
-4. **Web UI Configuration Only**: No config files or command-line setup
+4. **Configuration Through the Admin UI**: the UI writes the owning config file; credentials live in `secrets.yml` (0600)
 5. **Patterns are Pre-generated**: Either built-in or generated at build time
 6. **Agent Names are Personalized**: Never show role hierarchy to users
 7. **Everything is Audited**: All actions are logged for compliance

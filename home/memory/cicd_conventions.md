@@ -89,20 +89,39 @@ truffleHog is the mandatory scanner on all providers (Apache-2.0, no license key
 | Provider | How to run truffleHog |
 |----------|----------------------|
 | GitHub / Gitea / Forgejo | `trufflesecurity/trufflehog@{sha}` composite action |
-| GitLab | Docker job: `image: trufflesecurity/trufflehog:latest`, `script: trufflehog git file://. --since-commit HEAD~1 --fail` |
-| Jenkins | Docker step: `docker.image('trufflesecurity/trufflehog:latest').inside { sh 'trufflehog git file://. --since-commit HEAD~1 --fail' }` |
+| GitLab | Docker job: `image: trufflesecurity/trufflehog:latest`, `script: trufflehog git file://. --since-commit HEAD~1 --results=verified,unknown --exclude-paths=.github/trufflehog-exclude.txt --fail` |
+| Jenkins | Docker step: `docker.image('trufflesecurity/trufflehog:latest').inside { sh 'trufflehog git file://. --since-commit HEAD~1 --results=verified,unknown --exclude-paths=.github/trufflehog-exclude.txt --fail' }` |
 
 Always run with `fetch-depth: 0` (GitHub/Gitea/Forgejo) or `GIT_DEPTH: 0` (GitLab) so the full commit history is scanned.
 
-**GitHub / Gitea / Forgejo composite action — required `with:` params:**
+**GitHub / Gitea / Forgejo — host-runner job (no `container:`, no `needs`), `fetch-depth: 0`, scope step then scan:**
 
 ```yaml
+- name: Scope
+  id: scope
+  run: |
+    if [ "${{ github.event_name }}" = "pull_request" ]; then
+      echo "base=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+      echo "head=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+      echo "results=verified,unknown" >> "$GITHUB_OUTPUT"
+    elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+      echo "base=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
+      echo "head=${{ github.event.after }}" >> "$GITHUB_OUTPUT"
+      echo "results=verified,unknown" >> "$GITHUB_OUTPUT"
+    else
+      echo "base=" >> "$GITHUB_OUTPUT"
+      echo "head=" >> "$GITHUB_OUTPUT"
+      echo "results=verified" >> "$GITHUB_OUTPUT"
+    fi
+
 - uses: trufflesecurity/trufflehog@{sha}
   with:
-    base: ${{ github.event.before }}
-    head: ${{ github.event.after }}
-    extra_args: --only-verified
+    base: ${{ steps.scope.outputs.base }}
+    head: ${{ steps.scope.outputs.head }}
+    extra_args: --results=${{ steps.scope.outputs.results }} --exclude-paths=.github/trufflehog-exclude.txt
 ```
+
+PR and push-to-existing-branch scans cover the commit range and block on `verified` and `unknown`; a zero-SHA new branch, schedule, or manual dispatch scans the full history and blocks on `verified` only. `unverified` is reported and does not fail. `--only-verified` is not used. The allowlist is the inline `trufflehog:ignore` comment (no root config file). `.github/trufflehog-exclude.txt` (same path on every provider) holds one regex per line, no comments, only files the project does not author (`^go\.sum$` or `^Cargo\.lock$`, `^AI\.md$`); each addition needs a reason in the commit message. GitLab and Jenkins full-history scans use `--results=verified` instead of the range form.
 
 **Never use `base: ${{ github.event.repository.default_branch }}`** — after a push, `default_branch` resolves to the commit that was just pushed (same as HEAD), triggering truffleHog's "BASE and HEAD commits are the same" guard and skipping the scan entirely. Use `github.event.before` / `github.event.after` to pass the actual pre/post-push SHAs.
 
@@ -173,7 +192,7 @@ secret-scan:
   variables:
     GIT_DEPTH: 0
   script:
-    - trufflehog git file://. --since-commit HEAD~1 --fail
+    - trufflehog git file://. --since-commit HEAD~1 --results=verified,unknown --exclude-paths=.github/trufflehog-exclude.txt --fail
 
 vuln-scan:
   stage: security
@@ -230,7 +249,7 @@ pipeline {
             parallel {
                 stage('Secret Scan') {
                     steps {
-                        sh 'docker run --rm --name "trufflehog-$(tr -dc \'a-z0-9\' </dev/urandom | head -c8)" -v $PWD:/repo trufflesecurity/trufflehog:latest git file:///repo --since-commit HEAD~1 --fail'
+                        sh 'docker run --rm --name "trufflehog-$(tr -dc \'a-z0-9\' </dev/urandom | head -c8)" -v $PWD:/repo trufflesecurity/trufflehog:latest git file:///repo --since-commit HEAD~1 --results=verified,unknown --exclude-paths=.github/trufflehog-exclude.txt --fail'
                     }
                 }
                 stage('Vuln Scan') {
@@ -489,10 +508,10 @@ GitHub Actions runs all jobs in parallel by default. Use `needs:` to enforce ord
 ### `ci.yml` job order
 
 ```
+secret-scan           (host runner; no needs; always runs)
 ensure-build-image
 ├── lint              (needs: ensure-build-image; skipped on schedule)
 ├── test              (needs: ensure-build-image; skipped on schedule)
-├── secret-scan       (needs: ensure-build-image; always runs)
 ├── workflow-policy   (needs: ensure-build-image; always runs)
 ├── vuln-scan         (needs: ensure-build-image; conditional on manifest; always runs)
 ├── build             (needs: [lint, test]; skipped on schedule)
@@ -503,7 +522,7 @@ ensure-build-image
 
 `ci.yml` triggers on push to `main`, pull_request, a weekly schedule (`cron: '0 6 * * 1'`), and `workflow_dispatch` for manual re-runs. On the schedule event, `lint`, `test`, `build`, `coverage`, `image-scan`, and `upload-artifacts` skip via `if: github.event_name != 'schedule'` — only the security jobs (`secret-scan`, `workflow-policy`, `vuln-scan`) run. This ensures the security posture is checked weekly even without a code push. `workflow_dispatch` runs are treated like a push event (nothing skips) since they are an explicit manual request for a full run.
 
-`ensure-build-image` always runs regardless of trigger — it is the gate for all other jobs. Security jobs (`secret-scan`, `workflow-policy`, `vuln-scan`) each independently `needs: ensure-build-image`, giving them parallelism among themselves while all depending on the gate. They do not depend on each other.
+`ensure-build-image` always runs regardless of trigger — it is the gate for all other jobs. `secret-scan` runs ungated on a host runner (no `container:`, no `needs`), so it does not wait for the build image. The other security jobs (`workflow-policy`, `vuln-scan`) each independently `needs: ensure-build-image`, giving them parallelism among themselves while depending on the gate. They do not depend on each other.
 
 ### `release.yml` job order
 
@@ -616,7 +635,7 @@ Use 7 days for transient build artifacts; 30 days for release staging artifacts 
 | **Third-party action pinning** | External actions MUST be pinned to a full commit SHA — never float on `@main`, `@master`, or broad tags; verify runtime and maintenance status on every SHA update |
 | **No unsafe PR triggers** | Do NOT use `pull_request_target` for untrusted code execution, build, test, or artifact upload paths |
 | **Secrets never exposed to forks** | Fork PR workflows run without repo secrets, write tokens, publish steps, or deployment credentials |
-| **Secret scanning is mandatory** | Public repos run `truffleHog` on push/PR/schedule via `ci.yml`; findings are blockers, not warnings. Use `trufflesecurity/trufflehog` (Apache-2.0, no license key). Never use `gitleaks` — requires a commercial license for org repos |
+| **Secret scanning is mandatory** | Public repos run `truffleHog` on push/PR/schedule via `ci.yml`; blocking statuses: `verified` always; `unknown` only in push/PR range scans. `unverified` is reported and does not fail. Use `trufflesecurity/trufflehog` (Apache-2.0, no license key). True false positives are allowlisted in place with the inline `trufflehog:ignore` comment (no root config file). Docs and examples never contain credential-shaped strings: use `{user}:{password}` placeholders; a flagged example is rewritten, not allowlisted. Never use `gitleaks` — requires a commercial license for org repos |
 | **Dependency updates are automated** | Public repos include dependency update automation for every ecosystem in use |
 | **Vulnerability scanning is mandatory** | `ci.yml` MUST run the appropriate scanner(s) for every language in the repo; critical/high CVEs in direct deps are build blockers |
 
@@ -650,7 +669,7 @@ The security jobs within `ci.yml` always run on push, pull_request, and the week
 
 | Job | Scanner | Notes |
 |-----|---------|-------|
-| `secret-scan` | truffleHog | `trufflesecurity/trufflehog@{sha}` — Apache-2.0, no license key; `fetch-depth: 0` required |
+| `secret-scan` | truffleHog | `trufflesecurity/trufflehog@{sha}` — Apache-2.0, no license key; host-runner job (no `container:`, no `needs`); `fetch-depth: 0` required; always `--exclude-paths=.github/trufflehog-exclude.txt` |
 | `workflow-policy` | inline shell | Verifies all `uses:` lines are pinned to a 40-char SHA; blocks `pull_request_target` |
 
 **Conditional jobs (only when the manifest file exists in the repo):**
@@ -662,7 +681,7 @@ The security jobs within `ci.yml` always run on push, pull_request, and the week
 | `vuln-scan` (Node) | npm audit | `package-lock.json` present | `npm audit --audit-level=high` |
 | `image-scan` | Trivy | Dockerfile present | See per-provider examples below |
 
-A critical or high CVE in a direct dependency is a hard build failure — not a warning. The `image-scan` job requires the image to be built first; run it after `docker/build-push-action` in the same job or declare `needs: build`.
+A critical or high CVE in a direct dependency is a hard build failure — not a warning. `image-scan` is also a host-runner job. The `image-scan` job requires the image to be built first; run it after `docker/build-push-action` in the same job or declare `needs: build`.
 
 **Trivy invocation per provider** — always use the Docker image, never `wget` a release binary (versions disappear from releases):
 
@@ -734,8 +753,9 @@ Direct pushes to the default branch are forbidden except explicit maintainer eme
 | `.github/workflows/ci.yml` | Build, test, coverage, secret scan, vulnerability scan, and workflow policy — all push/PR work in dependency order |
 | `.github/workflows/release.yml` | Tagged/manual release build and publish |
 | `.github/workflows/build-toolchain.yml` | Monthly rebuild of the `:build` toolchain image |
+| `.github/trufflehog-exclude.txt` | truffleHog excluded paths: one regex per line, no comments, only files the project does not author (`^go\.sum$` or `^Cargo\.lock$`, `^AI\.md$`); same path on every provider; each addition needs a reason in the commit message |
 
-All three workflows are required on every public repo regardless of language. `ci.yml` always contains at minimum `secret-scan` (truffleHog) and `workflow-policy` (action pinning check); dependency vulnerability jobs are added only when the corresponding manifest files exist.
+All three workflows are required on every public repo regardless of language. The CI audit checklist includes: `.github/trufflehog-exclude.txt` exists and lists only files the project does not author. `ci.yml` always contains at minimum `secret-scan` (truffleHog, a host-runner job: no `container:`, no `needs`, `fetch-depth: 0`, `--exclude-paths=.github/trufflehog-exclude.txt`) and `workflow-policy` (action pinning check); dependency vulnerability jobs are added only when the corresponding manifest files exist.
 
 If the project also supports Gitea/Forgejo or Jenkins, the equivalent workflows/pipelines MUST enforce the same gates — not a weaker subset. CI MUST fail when required tests, coverage gates, secret scans, dependency checks, or release validation fail.
 

@@ -168,7 +168,7 @@ The same logic applies to every AI tool: **team config is committed; personal ov
 
 | Tool | Committed (team config) | Gitignored (personal / cache / secret) |
 |------|------------------------|----------------------------------------|
-| Claude Code | `.claude/settings.json`, `.claude/CLAUDE.md`, `.claude/commands/`, `.claude/agents/`, `.claude/hooks/`, `.claude/plans/` | `.claude/settings.local.json` |
+| Claude Code | `.claude/settings.json`, `.claude/CLAUDE.md`, `.claude/commands/`, `.claude/agents/`, `.claude/hooks/`, `.claude/plans/` | `.claude/settings.local.json`, `CLAUDE.local.md` |
 | Cursor | `.cursor/rules/`, `.cursor/mcp.json`, `.cursorignore`, `.cursorrules` (legacy) | `.cursor/settings.json` |
 | Windsurf | `.windsurf/rules/`, `.windsurfrules`, `.codeiumignore` | `.windsurf/settings.json` |
 | Aider | `.aider.conf.yml`, `.aiderignore` | `.aider.chat.history.md`, `.aider.input.history`, `.aider.llm.history`, `.aider.tags.cache.v3/` |
@@ -215,5 +215,6 @@ dist/
 - `.env.example`, `.env.sample`, `app.env.example`, `app.env.sample`, `default.env.example`, `default.env.sample` — committed; they are safe templates
 - `!*/README*` — README files are always kept
 - `.claude/settings.json`, `.claude/CLAUDE.md`, `.claude/plans/`, `.claude/commands/`, `.claude/agents/`, `.claude/hooks/` — committed; only `settings.local.json` is ignored
+- `.github/trufflehog-exclude.txt` — committed; one regex per line, no comments, lists only files the project does not author (lockfiles, `AI.md`); there is no root truffleHog config file — the allowlist is the inline `trufflehog:ignore` comment
 - AI tool team rules — `.cursor/rules/`, `.cursorignore`, `.cursorrules`, `.windsurf/rules/`, `.windsurfrules`, `.codeiumignore`, `.aider.conf.yml`, `.aiderignore`, `.github/copilot-instructions.md`, `.continue/config.json`, `.clinerules`, `.roomodes` — committed
 

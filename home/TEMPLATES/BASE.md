@@ -2,7 +2,7 @@
 
 **Name**: {project_name}
 
-**About this file:** `BASE.md` is the generic fallback template. When applied to a project, this file is copied into the project as `AI.md`. Throughout this document, all references to `AI.md` refer to that resulting file in a real project. Replace this with a language-specific template from the claudemgr template repos (e.g. `~/Projects/github/claudemgr/go/SERVER.md`) once the project's language and shape are known.
+**About this file:** `BASE.md` is the generic fallback template. When applied to a project, this file is copied into the project as `AI.md`. Throughout this document, all references to `AI.md` refer to that resulting file in a real project. Replace this with a language-specific template from the claudemgr template repos (shapes: `SERVER.md`, `API.md`, `HYBRID.md`, `APPLICATION.md`, e.g. `~/Projects/github/claudemgr/go/SERVER.md`) once the project's language and shape are known.
 
 **Note:** `{PROJECT_NAME}` and `{project_name}` in this file are reference tokens, not setup-time text replacements. Their values are resolved from `IDEA.md ## Project variables` while `AI.md` remains read-only.
 
@@ -115,7 +115,7 @@ security assumptions, and any exceptions.)
 This is a generic template. The implementation language, toolchain, and build system are defined by `IDEA.md ## Project variables` (`language:` key). Before writing any code:
 
 1. Read `IDEA.md` to determine the language
-2. Check whether a language-specific template exists in `~/Projects/github/claudemgr/{language}/` and recommend upgrading AI.md to it
+2. Check whether a language-specific template (`SERVER.md`, `API.md`, `HYBRID.md`, or `APPLICATION.md`) exists in `~/Projects/github/claudemgr/{language}/` and recommend upgrading AI.md to the one matching the project's shape
 3. Apply the global `~/.claude/CLAUDE.md` language constraints for the detected language
 4. If `language:` is missing from IDEA.md, ask — never assume
 
@@ -344,6 +344,8 @@ On-disk paths use the stable pair `{internal_org}` and `{internal_name}` only �
 | Cache | `~/.cache/{internal_org}/{internal_name}/` | `~/Library/Caches/{internal_name}/` | `%LocalAppData%\{internal_org}\{internal_name}\cache\` |
 | Logs | `~/.local/state/{internal_org}/{internal_name}/logs/` | `~/Library/Logs/{internal_name}/` | `%LocalAppData%\{internal_org}\{internal_name}\logs\` |
 
+Config canon: `server.yml` (node-local, `0600`), `yaml.d/*.yml` drop-ins (`0700` directory), and `secrets.yml`; merge order is defaults, `server.yml`, `yaml.d` in byte-wise filename order, then `secrets.yml`, with CLI flags and environment variables above all. Private-path permissions are enforced before config is read.
+
 ---
 
 # PART 5: VERSION, SITE, AND BUILD METADATA
@@ -387,11 +389,16 @@ The artifact embeds version, commit id, and build epoch. Version strings come fr
 - **Defense in depth** — layer authentication, authorization, input validation, output encoding, rate limiting independently
 - **Parameterized queries** — never interpolate user input into SQL, shell commands, or template strings
 - **Constant-time comparison** — for all credential/token comparison operations
-- **No hardcoded secrets** — credentials via environment variables or a secrets manager only
+- **No hardcoded secrets** — credentials live in `secrets.yml` (mode `0600`, never committed); init-only environment variables seed it once on first run, then are ignored
+- **API tokens** — API credentials live in a single `tokens` table, hashed at rest, presented only as `Authorization: Bearer {token}`
+- **Database and cache connections** — connection strings arrive via the init-only `DATABASE_URL` / `CACHE_URL` variables; mechanics are in the shape template
+- **Internationalization** — all user-facing text is translated; no hardcoded strings
+- **Health** — expose `healthz` with fixed output; suppress successful health requests from request logs
+- **Web surfaces** — the contact/report form and security disclosure follow the shape template
 
 ## Rate Limiting
 
-All auth endpoints (login, password reset, OTP, token refresh) must have rate limiting with exponential backoff and lockout.
+All auth endpoints (login, password reset, OTP, token refresh) must have rate limiting with exponential backoff and lockout. Anonymous submit forms need CAPTCHA on every submission, with a no-JS fallback.
 
 ## Audit Logging
 
@@ -444,6 +451,8 @@ The project MUST have CI that runs on every push and pull request:
 - Build (all target platforms)
 - Security/vulnerability scan
 - Static-binary self-check (confirm artifact has no unexpected dynamic dependencies)
+- Secret scan (truffleHog) — host-runner job; `verified` findings always block, `unknown` only in push/PR range scans; allowlist via inline `trufflehog:ignore`, never gitleaks; `.github/trufflehog-exclude.txt` lists only files the project does not author
+- All five CI providers ship the same gates; dependency updates via Renovate with `pinDigests: true`
 
 ## One Canonical Release Flow
 

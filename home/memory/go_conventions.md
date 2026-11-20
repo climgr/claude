@@ -32,15 +32,17 @@ Source always under `src/` — never at repo root. `package main` entry point is
 PROJECTNAME := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)(\.git)?$$|\1|' || basename "$$(pwd)")
 PROJECTORG  := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(\.git)?$$|\1|' || basename "$$(dirname "$$(pwd)")")
 
-VERSION    ?= $(shell cat release.txt 2>/dev/null || echo "devel")
-BUILD_DATE := $(shell date +"%a %b %d, %Y at %H:%M:%S %Z")
-COMMIT_ID  := $(shell git rev-parse --short=7 HEAD 2>/dev/null || echo "N/A")
-PLATFORMS  ?= linux/amd64,linux/arm64
+VERSION       ?= $(shell cat release.txt 2>/dev/null || echo "devel")
+BUILD_EPOCH   := $(shell date -u +%s)
+BUILD_DATE    := $(shell date -u -d @$(BUILD_EPOCH) +"%Y-%m-%dT%H:%M:%SZ")
+COMMIT_ID     := $(shell git rev-parse --short=7 HEAD 2>/dev/null || echo "N/A")
+OFFICIAL_SITE := $(shell [ -f site.txt ] && cat site.txt || echo "$${OFFICIAL_SITE:-}")
+PLATFORMS     ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 freebsd/amd64 freebsd/arm64
 
 LDFLAGS := -s -w \
 	-X 'main.Version=$(VERSION)' \
 	-X 'main.CommitID=$(COMMIT_ID)' \
-	-X 'main.BuildDate=$(BUILD_DATE)' \
+	-X 'main.BuildEpoch=$(BUILD_EPOCH)' \
 	-X 'main.OfficialSite=$(OFFICIAL_SITE)'
 
 BINDIR    := binaries
@@ -202,19 +204,23 @@ Declare in `main.go` as package-level vars set by ldflags:
 
 ```go
 var (
-    Version   = "devel"
-    CommitID  = "N/A"
-    BuildDate = "N/A"
+    Version      = "devel"
+    CommitID     = "N/A"
+    BuildEpoch   = "0"
+    OfficialSite = ""
+    BuildDate    = "N/A"
 )
 ```
+
+`BuildEpoch` and `OfficialSite` are ldflags; `BuildDate` is NOT an ldflag — derive it from `BuildEpoch` in `init()`.
 
 Never use `VCS_REF` as an alias — `CommitID` is the canonical name.
 
 ## Registry
 
-Always `ghcr.io/{PROJECTORG}/{PROJECTNAME}` — tagged as both `:{VERSION}` and `:latest`.
+Always `ghcr.io/{PROJECTORG}/{PROJECTNAME}` — a release is tagged `:{VERSION}`, `:latest`, `:YYMM` and `:{commit_id}`; any push gets `:{commit_id}` only, a beta adds `:beta`, and `:devel` comes from the separate `build-devel` job in `docker.yml` (built from `Dockerfile.dev`).
 
-Docker target uses `docker buildx` with `--platform $(PLATFORMS)` — no `--push`; pushing is CI/CD's responsibility, not the Makefile's. `PLATFORMS` defaults to `linux/amd64,linux/arm64` and is overridable: `make docker PLATFORMS=linux/amd64`.
+Docker target uses `docker buildx` with `--platform $(PLATFORMS)` — no `--push`; pushing is CI/CD's responsibility, not the Makefile's. `PLATFORMS` is space-separated, defaults to all 8 OS/arch pairs (linux, darwin, windows, freebsd x amd64, arm64) and is overridable: `make docker PLATFORMS=linux/amd64`.
 
 ## Minimum Go Version
 

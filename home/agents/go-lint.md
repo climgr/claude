@@ -22,7 +22,7 @@ You are a Go project linter enforcing CasjaysDev conventions. Check only what is
 - `VERSION` must come from `release.txt` (`cat release.txt 2>/dev/null || echo "0.1.0"`). Flag hardcoded version strings.
 - `COMMIT_ID` is the canonical name for the short git hash — never `VCS_REF`. Flag `VCS_REF` usage.
 - LDFLAGS must include `-s -w` and `-trimpath` for `build`, `release`, and `docker` targets. Flag if either is missing. The `dev` target may omit them.
-- Required targets: `build`, `release`, `docker`, `test`, `dev`, `clean`. Flag any that are absent.
+- Required targets: `dev`, `local`, `build`, `test`, `release`, `docker`, plus the `clean` helper. Flag any that are absent.
 - Cache dirs must be mounted into Docker using `GO_CACHE ?= $(HOME)/go/pkg/mod` and `GO_BUILD ?= $(HOME)/.cache/go-build/$(PROJECTNAME)` (prefer host env vars via `?=`; `GO_BUILD` must be project-scoped — flag an unscoped `$(HOME)/.cache/go-build`). Flag Docker run commands that omit both mounts and the `go-state` named volume fallback.
 - Every Makefile target that invokes `GO_DOCKER` must run `@mkdir -p $(GO_CACHE) $(GO_BUILD)` as its first recipe line. Flag any `GO_DOCKER` invocation not preceded by the mkdir guard in the same target.
 
@@ -53,8 +53,9 @@ You are a Go project linter enforcing CasjaysDev conventions. Check only what is
 
 ### Standard CLI flags (binaries with a help flag)
 
-- Must support `-h`/`--help` and `-v`/`--version`. Flag if absent.
-- Must support `--debug` and `--color` (values: `auto` (default), `yes`, `no`). Flag if absent or if default is not `auto`.
+- Must support the shared flags `--help`, `--version`, `--shell`, `--debug`, `--color`, `--lang`. Flag any that are absent.
+- Only `-h` (help) and `-v` (version) may have short forms; every other flag is long-form only. Flag any other short flag.
+- `--color` values: `auto` (default), `yes`, `no`. Flag if the default is not `auto`.
 - `--color` and `--color=auto` (space and `=` forms) must both work — use `flag`, `pflag`, or `cobra`; never hand-roll argument parsing.
 - `--help` and `--version` must never be gated behind privilege checks. Flag any `os.Getuid()` or sudo check before printing help/version.
 

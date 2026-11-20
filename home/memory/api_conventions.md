@@ -10,10 +10,10 @@ All API routes follow these rules — no exceptions:
 
 | Rule | Wrong | Correct |
 |------|-------|---------|
-| Always versioned | `/api/users` | `/api/v1/users` |
+| Always versioned (exceptions: see Unversioned aliases) | `/api/users` | `/api/v1/users` |
 | Plural nouns | `/api/v1/user` | `/api/v1/users` |
 | Lowercase | `/api/v1/Users` | `/api/v1/users` |
-| Hyphens for multi-word | `/api/v1/api_keys` | `/api/v1/api-keys` |
+| Hyphens for multi-word | `/api/v1/saved_searches` | `/api/v1/saved-searches` |
 | No trailing slash | `/api/v1/users/` | `/api/v1/users` |
 | Nouns not verbs | `/api/v1/getUsers` | `GET /api/v1/users` |
 
@@ -28,6 +28,24 @@ Use `{api_version}` (project variable, default `v1`) — never hardcode the vers
 | Current user resources | `/users/*` | `/api/{api_version}/users/*` (ID from session, not URL) |
 | Admin | `/server/{admin_path}/*` | `/api/{api_version}/server/{admin_path}/*` |
 | Project-specific | `/*` | `/api/{api_version}/*` |
+
+### Unversioned aliases (exhaustive)
+
+The ONLY unversioned API-class paths are: `/api/swagger`, `/api/graphql`, `/api/healthz`, `/api/metrics`, `/api/mcp`, `/api/debug/*`, `/mcp` and `/api/autodiscover`. Any other unversioned `/api/...` route is a defect.
+
+- Aliases mount the SAME handler as the canonical versioned route — never a redirect
+- Each alias has one parity test asserting the same status, headers and body as its canonical route
+- Docs, examples, tests and client code name the canonical versioned route
+- `/api/autodiscover` is unversioned by design (clients call it before they know the version) and has no versioned form
+
+### Health routes
+
+| Route | Behavior |
+|-------|----------|
+| `/server/healthz` | Frontend: content negotiation — HTML for browsers, JSON for API clients, text for CLI |
+| `/api/{api_version}/server/healthz` | API: JSON by default |
+| `/api/healthz` | Unversioned alias (see above) |
+| `/healthz` | Optional root alias, only when `server.healthz.root.enabled: true` (default `false`); direct handler, never a redirect |
 
 ---
 

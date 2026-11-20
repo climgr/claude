@@ -16,7 +16,7 @@ type: user
 - Never hardcode the version string anywhere else in source code
 - Makefile reads it: `VERSION ?= $(shell cat release.txt 2>/dev/null || echo "devel")`
 - `?=` allows one-time override: `make build VERSION=1.3.1-rc1`
-- If `release.txt` is absent, the build falls back to `"devel"` — signals an unversioned/development build
+- If `release.txt` is absent, the build falls back to `devel` — signals an unversioned build. The reported version (`--version`) is SemVer for a release, `YYYYMMDDHHMMSS-beta` for a beta, and the short commit id for a devel build; never the word `devel`, and `dev` only when none of these apply
 
 ---
 
@@ -45,10 +45,16 @@ var (
     Version   = "devel"
     // -X 'main.CommitID=$(COMMIT_ID)'
     CommitID  = "unknown"
-    // -X 'main.BuildDate=$(BUILD_DATE)'
+    // -X 'main.BuildEpoch=$(BUILD_EPOCH)'
+    BuildEpoch = "0"
+    // -X 'main.OfficialSite=$(OFFICIAL_SITE)'
+    OfficialSite = ""
+    // derived from BuildEpoch in init(); not an ldflag
     BuildDate = "unknown"
 )
 ```
+
+`BuildEpoch` (Unix seconds, UTC) is the only build-time ldflag for the build time; `BuildDate` is derived from it in `init()`.
 
 `--version` output: `{project_name} {Version} ({CommitID}) built {BuildDate}`
 
@@ -94,24 +100,27 @@ BUILD_DATE = os.environ.get("BUILD_DATE", "unknown")
 
 | Context | Tags applied |
 |---------|-------------|
-| Any branch push | `:devel`, `:{commit_sha_short}` |
-| Beta branch push | `:devel`, `:beta`, `:{commit_sha_short}` |
+| Any push | `:{commit_id}` only |
+| Beta branch push | `:beta`, `:{commit_id}` |
 | Tagged release | `:{version}`, `:latest`, `:YYMM`, `:{commit_sha_short}` |
 
 - `YYMM` = two-digit year + two-digit month (e.g. `2505` for May 2025) — monthly snapshot pin
 - **Never tag a non-release build as `:latest`** — `:latest` is for tagged releases only
 - `:{commit_sha_short}` on every push enables pinning to a specific build
+- `:devel` is NOT part of the push tags: it comes from a separate `build-devel` job inside `docker.yml` (schedule + non-tag push, gated by `if:`), built from `docker/Dockerfile.dev`
 
 ---
 
 ## Git Release Tag Convention
 
-Git tags always carry the `v` prefix; `release.txt` does not:
+A stable git tag may be `v1.2.3` or `1.2.3`; `release.txt` never carries the `v`. The tag below uses the `v` form:
 
 ```
 release.txt: 1.3.0
 git tag:     v1.3.0
 ```
+
+A beta release name has no `v` (`20251205-beta`). The devel release is ONE rolling release named `devel`: each devel build deletes and replaces the previous one.
 
 CI detects a tagged release via `startsWith(github.ref, 'refs/tags/v')`.
 
@@ -132,7 +141,8 @@ Never mix a version bump with feature or fix changes — version bump is always 
 
 | Source | Priority | When used |
 |--------|----------|-----------|
-| `release.txt` | Highest | Normal projects — always present |
+| `VERSION` environment variable | Highest (wins over `release.txt` when set) | Explicit override |
+| `release.txt` | High | Normal projects — always present |
 | Git tag (`v*`) | Fallback | `release.txt` absent; running from a tag |
 | `git describe` | Fallback | No tag on this commit |
 | `"0.1.0-dev"` | Last resort | New project, no release yet |

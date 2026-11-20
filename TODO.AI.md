@@ -195,3 +195,30 @@ out of scope for the task they were found during.
       `gitcommit push`). The hook now accepts exactly
       `--dir <abs-path> all|spec|push`; AI.md is read-only during routine
       work, so update that row when the spec is next edited.
+
+## Template-sync follow-ups (2026-11-20 home/** vs go/rust templates)
+
+- [ ] `go-auth-builder.md` / `rust-auth-builder.md` now follow the SERVER
+      canon (unified `tokens` table, shared `/server/auth/login`).
+      `API.md` and `HYBRID.md` still use `owners` + `api_tokens`; decide
+      whether the builders need an API-shape variant.
+- [ ] Auth builders: no org-token handler is built (org tokens exist only
+      in schema and middleware); `/auth/me` and password-change were
+      mapped to `/api/{v}/users/settings` and
+      `/api/{v}/users/security/password` (extension, not in SERVER.md);
+      admin session, password and TOTP routes remain at
+      `/server/{admin_path}/auth/*`. Verify against the template.
+- [ ] `go/SERVER.md` contradicts itself on version precedence (line ~696
+      `release.txt` wins vs ~40971 `VERSION` env wins); home follows the
+      env-wins rule. Fix the template, then re-check `version_conventions.md`.
+- [ ] `home/TEMPLATES/BILLING.md`: the tokens-table line under
+      Configuration Storage is a loose fit (template defines no billing API
+      keys); review or drop.
+- [ ] `home/memory/rust_conventions.md` PLATFORMS lists 7 pairs (the rust
+      template omits freebsd/arm64); confirm that is intended.
+- [ ] Not synced: `security_conventions.md` template hardening list
+      (private paths, secrets.yml, ProtectSystem=true, client-IP
+      right-walk, report-form hardening); `BASE.md` bind default and
+      systemd unit; `home/hooks/` and `home/settings.json` were not audited
+      against the templates; `android/` and `docker/` templates changed
+      before 2026-10-06 and were only spot-checked.
