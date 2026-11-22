@@ -153,7 +153,7 @@ Hook scripts in `home/hooks/` run synchronously before or after a matching tool 
 | `enforce-doc-sync.sh` | PreToolUse Bash | Blocks `gitcommit` unless `COMMIT_MESS` carries an explicit `IDEA.md`/`README.md` status line for whichever of those files exists at the target repo's root |
 | `test-lint-mark.sh` | PostToolUse Bash | Records that a test/lint command exited 0 this session |
 | `lint-agent-mark.sh` | SubagentStop | Records the lint gate satisfied when a lint subagent finishes clean |
-| `validate-workflows.sh` | PreToolUse Bash | Blocks staged workflow files unless third-party Actions are SHA-pinned (GitHub, Gitea and Forgejo), every `container:` job sets `options: "--user 0:0"`, the truffleHog job is a host-runner job with no `container:`/`needs:`, release/devel/beta/docker workflows have `workflow_dispatch`, and `act --list` passes |
+| `validate-workflows.sh` | PreToolUse Bash | Blocks staged workflow files unless third-party Actions are SHA-pinned (GitHub, Gitea and Forgejo), every `container:` job sets `options: "--user 0:0"`, the truffleHog job is a host-runner job with no `container:`/`needs:`, release/devel/beta/docker workflows have `workflow_dispatch`, and `act --list` passes; skipped by the user-directed `TEST_LINT_GATE_OVERRIDE=1` prefix |
 | `no-ai-attribution.sh` | PreToolUse Write+Edit | Blocks AI attribution phrases in file content |
 | `no-secrets.sh` | PreToolUse Write+Edit | Scans Write/Edit content for high-confidence secret patterns, and blocks credentialed URLs (`scheme://user:pass@host`) in `.md` files — docs use `{user}:{password}` placeholders |
 | `no-forbidden-files.sh` | PreToolUse Write+Edit | Confirms before writing normally-forbidden files |

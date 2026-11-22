@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202611220003-git
+##@Version           :  202611220004-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,14 +10,14 @@
 # @@Created          :  Sunday, May 17, 2026 00:00 EDT
 # @@File             :  validate-workflows.sh
 # @@Description      :  PreToolUse hook: validate staged .github/workflows files with act --list before gitcommit
-# @@Changelog        :  Pin check now also covers .gitea/.forgejo workflows; new CI-policy block (container jobs need options --user 0:0, secret-scan job is host-runner with no container/needs, release/devel/beta/docker workflows need workflow_dispatch). Earlier: added the header block, timeout wrapping, setupmgr guard, --dir= parsing, and dual-stream BLOCKED output; fixed the license header field to WTFPL.
+# @@Changelog        :  Honor the user-directed TEST_LINT_GATE_OVERRIDE=1 prefix (workflow validation is a lint-type gate; commit rules stay enforced elsewhere). Pin check now also covers .gitea/.forgejo workflows; new CI-policy block (container jobs need options --user 0:0, secret-scan job is host-runner with no container/needs, release/devel/beta/docker workflows need workflow_dispatch). Earlier: added the header block, timeout wrapping, setupmgr guard, --dir= parsing, and dual-stream BLOCKED output; fixed the license header field to WTFPL.
 # @@TODO             :
 # @@Other            :  Exit 0 = allow, exit 2 = block (message sent to Claude as context)
 # @@Resource         :
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202611220003-git"
+VERSION="202611220004-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 set -euo pipefail
 
@@ -43,14 +43,19 @@ print(inp.get('command', ''))
 # Only fire on gitcommit invocations
 printf '%s' "$CMD" | grep -qE -- '\bgitcommit\b' || exit 0
 
+# User-directed bypass: workflow validation is a lint-type gate, so the same
+# TEST_LINT_GATE_OVERRIDE=1 prefix that skips the test and lint gates skips it too.
+# Every commit rule (command shape, COMMIT_MESS coverage, doc-sync lines, no force
+# push, signing) is enforced by other hooks and is not affected by this prefix.
+printf '%s' "$CMD" | grep -qE -- '^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*TEST_LINT_GATE_OVERRIDE=1[[:space:]]' && exit 0
+
 # Extract --dir argument value (accepts both "--dir /path" and "--dir=/path")
 PROJECT_DIR="$(printf '%s' "$CMD" | grep -oE -- '--dir(=|[[:space:]]+)[^[:space:]]+' | head -n1 | sed -E 's/^--dir(=|[[:space:]]+)//' || true)"
 [ -z "$PROJECT_DIR" ] && exit 0
 [ -d "$PROJECT_DIR" ] || exit 0
 
 # Check if any .github/workflows/ YAML files are staged
-ALL_STAGED_WORKFLOWS="$(git -C "$PROJECT_DIR" diff --cached --name-only 2>/dev/null \
-    | grep -E -- '^\.(github|gitea|forgejo)/workflows/.*\.ya?ml$' || true)"
+ALL_STAGED_WORKFLOWS="$(git -C "$PROJECT_DIR" diff --cached --name-only 2>/dev/null | grep -E -- '^\.(github|gitea|forgejo)/workflows/.*\.ya?ml$' || true)"
 [ -z "$ALL_STAGED_WORKFLOWS" ] && exit 0
 # act only understands GitHub workflows; .gitea/.forgejo files get the text/policy checks only
 STAGED_WORKFLOWS="$(printf '%s\n' "$ALL_STAGED_WORKFLOWS" | grep -E -- '^\.github/' || true)"
