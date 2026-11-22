@@ -190,14 +190,6 @@ out of scope for the task they were found during.
       the underlying registration bug (still upstream, item stays open)
       — it is a last-resort user override, not a marker fix.
 
-- [ ] `AI.md` line 292 (Part 6 hook table, `enforce-gitcommit-shape.sh`)
-      still describes the old shapes (`--dir <path> all` or bare
-      `gitcommit push`). The hook now accepts exactly
-      `--dir <abs-path> all|spec|push`; AI.md is read-only during routine
-      work, so update that row when the spec is next edited.
-
-## Template-sync follow-ups (2026-11-20 home/** vs go/rust templates)
-
 - [ ] `go-auth-builder.md` / `rust-auth-builder.md` now follow the SERVER
       canon (unified `tokens` table, shared `/server/auth/login`).
       `API.md` and `HYBRID.md` still use `owners` + `api_tokens`; decide
@@ -223,12 +215,6 @@ out of scope for the task they were found during.
       against the templates; `android/` and `docker/` templates changed
       before 2026-10-06 and were only spot-checked.
 
-- [ ] `AI.md` Part 6 hook rows for `zone-git-commit-push.sh` (line ~286)
-      and `no-history-rewrite.sh` (line ~289) predate the scoped-delete
-      change: raw `git -C {abs-dir} push --delete <remote> <ref>` and
-      `git -C {abs-dir} stash drop` are now allowed (never `--mirror`,
-      never `stash clear`, never without `-C`). AI.md is read-only during
-      routine work, so update both rows when the spec is next edited.
 - [ ] `git branch -D` (force delete, needed for squash-merged branches)
       is still blocked by `no-history-rewrite.sh`; decide whether to allow
       it as `git -C {abs-dir} branch -D` like the other scoped deletes.
