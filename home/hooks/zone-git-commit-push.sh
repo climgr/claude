@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202609170001-git
+##@Version           :  202611220001-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, August 29, 2026 00:00 EDT
 # @@File             :  zone-git-commit-push.sh
 # @@Description      :  PreToolUse hook: blocks raw `git commit`/`git push` everywhere, with no Local System Management Zone exception — `gitcommit` is the sole commit+push path always; a zone repo that must never push uses a `.no_push` file instead.
-# @@Changelog        :  Decode the stdin payload file as UTF-8 with replacement and fail open on any parse exception (not only JSONDecodeError) — a non-UTF-8 byte previously raised UnicodeDecodeError and surfaced as a hook error.
+# @@Changelog        :  Allow `git -C <abs-dir> push --delete` (never --mirror) as the one raw push; every other raw push stays blocked. Decode the stdin payload file as UTF-8 with replacement and fail open on any parse exception (not only JSONDecodeError) — a non-UTF-8 byte previously raised UnicodeDecodeError and surfaced as a hook error.
 # @@TODO             :  None
 # @@Other            :  git reset stays hard-denied via settings.json; force-push stays blocked everywhere via no-force-push.sh, including inside the zone.
 # @@Resource         :  CLAUDE.md - Local System Management Zone
@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202609170001-git"
+VERSION="202611220001-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 set -uo pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -155,6 +155,37 @@ def find_git_subcommand(tokens):
     return None
 
 
+def is_scoped_delete_push(clean_tokens):
+    # `git -C <abs-dir> push --delete <remote> <ref>`: a remote-ref delete scoped
+    # to one named repo is the only raw push allowed. Every `-C` path must be
+    # absolute, and `--mirror` (bulk ref wipe) never qualifies.
+    c_dirs = []
+    i = 1
+    while i < len(clean_tokens):
+        tok = clean_tokens[i]
+        if tok == "-C":
+            if i + 1 >= len(clean_tokens):
+                return False
+            c_dirs.append(clean_tokens[i + 1])
+            i += 2
+            continue
+        if tok in GIT_GLOBAL_OPTS_WITH_VALUE:
+            i += 2
+            continue
+        if tok.startswith("-"):
+            i += 1
+            continue
+        break
+    if i >= len(clean_tokens) or clean_tokens[i] != "push":
+        return False
+    if not c_dirs or not all(d.startswith("/") for d in c_dirs):
+        return False
+    args = clean_tokens[i + 1:]
+    if "--mirror" in args:
+        return False
+    return any(a in ("--delete", "-d") for a in args)
+
+
 def find_git_subcommand_kind(clean_tokens):
     # Expects argv of one sub-command with wrapper/env prefixes already stripped.
     # Returns "commit", "push", or None.
@@ -203,6 +234,8 @@ for sub in re.split(r"[\n;]|&&|\|\||[|&]", cmd):
         print(msg)
         sys.stderr.write(msg + "\n")
         sys.exit(2)
+    if kind == "push" and is_scoped_delete_push(clean):
+        continue
     if kind == "push":
         # Raw `git push` also has no Local System Management Zone exception —
         # `gitcommit` is the sole commit+push path everywhere; a zone repo that
@@ -212,6 +245,8 @@ for sub in re.split(r"[\n;]|&&|\|\||[|&]", cmd):
             "Local System Management Zone (~/Projects/local/system/**).\n\n"
             "The only sanctioned commit+push path is:\n"
             "  gitcommit --dir {project_dir} all\n\n"
+            "The one raw push allowed is a scoped remote-ref delete:\n"
+            "  git -C {project_dir} push --delete <remote> <ref>\n\n"
             "To prevent a zone repo from ever pushing, use a `.no_push` file instead "
             "of raw `git push` — see CLAUDE.md's Local System Management Zone section."
         )

@@ -139,12 +139,12 @@ Hook scripts in `home/hooks/` run synchronously before or after a matching tool 
 | `block-host-toolchain.sh` | PreToolUse Bash | Blocks direct host toolchain invocations, suggests the Docker equivalent |
 | `enforce-docker-rm.sh` | PreToolUse Bash | Blocks `docker run` without `--rm`/`--name` and unnamed `incus launch`/`init` |
 | `bound-shell-lifetime.sh` | PreToolUse Bash | Blocks unbounded shell lifetimes — unbounded poll loops, open-ended sleeps, `nohup`/`setsid`/`disown`, unbounded `tail -f`/`watch`, unmanaged `&` |
-| `zone-git-commit-push.sh` | PreToolUse Bash | Blocks raw `git commit` and raw `git push` everywhere, no zone exception for either — commit signing and push must always go through `gitcommit`; a zone repo that must never publish keeps a `.no_push` file instead |
+| `zone-git-commit-push.sh` | PreToolUse Bash | Blocks raw `git commit` and raw `git push` everywhere, no zone exception for either — commit signing and push must always go through `gitcommit`; a zone repo that must never publish keeps a `.no_push` file instead. The one raw push allowed is `git -C {dir} push --delete <remote> <ref>` (absolute `{dir}`, never `--mirror`) |
 | `no-subagent-commit.sh` | PreToolUse Bash | Blocks `gitcommit`/`git commit`/`git push` when called from a subagent |
 | `no-subagent-gates.sh` | PreToolUse Bash | Blocks `make` and test runners (`go test`, `cargo test`, `pytest`, `npm test`, and the same through `docker`/`podman`/`incus`) when called from a subagent; the main session runs the gates once |
 | `limit-test-instances.sh` | PreToolUse Bash | Blocks creating a VM, Incus instance, or detached container when the project already has 4 running (`CLAUDE_MAX_TEST_INSTANCES`), and blocks launching them from a loop |
 | `no-force-push.sh` | PreToolUse Bash | Blocks all force-push forms everywhere, including inside the zone |
-| `no-history-rewrite.sh` | PreToolUse Bash | Blocks `git clean -f*`, `rebase`, `branch -D`, `tag -d`, `filter-repo`/`filter-branch` everywhere |
+| `no-history-rewrite.sh` | PreToolUse Bash | Blocks `git clean -f*`, `rebase`, `branch -D`, `tag -d`, `filter-repo`/`filter-branch`, `stash clear` everywhere; `push --delete` and `stash drop` only as `git -C {dir} ...` with an absolute `{dir}` |
 | `no-destructive-bypass.sh` | PreToolUse Bash | Re-enforces the `git reset`/`dd`/`shred`/`mkfs*`/`wipefs` deny list against wrapper bypasses |
 | `bash-content-scan.sh` | PreToolUse Bash | Runs the secrets/AI-attribution scans against heredoc and `echo`/`printf` redirect content |
 | `enforce-gitcommit-shape.sh` | PreToolUse Bash | Blocks any `gitcommit` invocation that isn't exactly `--dir <abs-path> all`, `spec` or `push` |

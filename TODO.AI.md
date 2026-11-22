@@ -222,3 +222,14 @@ out of scope for the task they were found during.
       systemd unit; `home/hooks/` and `home/settings.json` were not audited
       against the templates; `android/` and `docker/` templates changed
       before 2026-10-06 and were only spot-checked.
+
+- [ ] `AI.md` Part 6 hook rows for `zone-git-commit-push.sh` (line ~286)
+      and `no-history-rewrite.sh` (line ~289) predate the scoped-delete
+      change: raw `git -C {abs-dir} push --delete <remote> <ref>` and
+      `git -C {abs-dir} stash drop` are now allowed (never `--mirror`,
+      never `stash clear`, never without `-C`). AI.md is read-only during
+      routine work, so update both rows when the spec is next edited.
+- [ ] `git branch -D` (force delete, needed for squash-merged branches)
+      is still blocked by `no-history-rewrite.sh`; decide whether to allow
+      it as `git -C {abs-dir} branch -D` like the other scoped deletes.
+      `git worktree remove`/`prune` and `git branch -d` were never blocked.

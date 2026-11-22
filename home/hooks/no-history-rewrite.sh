@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202609170001-git
+##@Version           :  202611220001-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, August 30, 2026 16:00 EDT
 # @@File             :  no-history-rewrite.sh
 # @@Description      :  PreToolUse hook: blocks destructive/history-rewriting git ops everywhere — a hook can only block, not interactively confirm.
-# @@Changelog        :  Decode the stdin payload file as UTF-8 with replacement and fail open on any parse exception (not only JSONDecodeError) — a non-UTF-8 byte previously raised UnicodeDecodeError and surfaced as a hook error.
+# @@Changelog        :  Allow `git -C <abs-dir> push --delete` (never --mirror) and `git -C <abs-dir> stash drop`; stash clear and every unscoped form stay blocked. Decode the stdin payload file as UTF-8 with replacement and fail open on any parse exception (not only JSONDecodeError) — a non-UTF-8 byte previously raised UnicodeDecodeError and surfaced as a hook error.
 # @@TODO             :  None
 # @@Other            :  git rebase --abort/--continue/--skip are exempt — they resolve an already-started rebase rather than starting a new history rewrite.
 # @@Resource         :  local_system_zone.md - "Still hard - no exception, ever"
@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202609170001-git"
+VERSION="202611220001-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 set -euo pipefail
 
@@ -190,6 +190,27 @@ def find_git_subcommand(rest):
     return None, -1
 
 
+def has_abs_c_dir(pre_tokens):
+    # True when the global options before the subcommand carry at least one
+    # `-C <path>` and every such path is absolute — the `git -C {dir} ...` form
+    # that scopes a delete or stash drop to one named repo.
+    dirs = []
+    i = 0
+    while i < len(pre_tokens):
+        tok = pre_tokens[i]
+        if tok == "-C":
+            if i + 1 >= len(pre_tokens):
+                return False
+            dirs.append(pre_tokens[i + 1])
+            i += 2
+            continue
+        if tok in GIT_GLOBAL_OPTS_WITH_VALUE:
+            i += 2
+            continue
+        i += 1
+    return bool(dirs) and all(d.startswith("/") for d in dirs)
+
+
 def violation(clean_tokens):
     # Expects argv of one sub-command with wrapper/env prefixes already stripped.
     if not clean_tokens:
@@ -206,6 +227,7 @@ def violation(clean_tokens):
     if sub is None:
         return None
     args = rest[sub_idx + 1:]
+    pre = rest[:sub_idx]
 
     if sub == "clean":
         if has_force_flag(args) and not is_dry_run(args):
@@ -240,14 +262,18 @@ def violation(clean_tokens):
         return None
 
     if sub == "stash":
-        if args and args[0] in ("drop", "clear"):
-            return f"git stash {args[0]} discards stashed work irreversibly"
+        if args and args[0] == "clear":
+            return "git stash clear discards every stashed entry (bulk clear stays blocked)"
+        if args and args[0] == "drop" and not has_abs_c_dir(pre):
+            return "git stash drop is allowed only as git -C {dir} stash drop"
         return None
 
     if sub == "push":
-        for a in args:
-            if a == "--delete" or a == "-d":
-                return "git push --delete discards a remote ref"
+        if any(a == "--delete" or a == "-d" for a in args):
+            if "--mirror" in args:
+                return "git push --mirror --delete wipes remote refs in bulk"
+            if not has_abs_c_dir(pre):
+                return "git push --delete is allowed only as git -C {dir} push --delete"
         return None
 
     if sub == "update-ref":
@@ -299,14 +325,16 @@ for sub_cmd in re.split(r"[\n;]|&&|\|\||[|&]", cmd):
         msg = (
             f"BLOCKED: history-rewriting/destructive git operation ({reason}).\n\n"
             "git clean -f*, git rebase, git branch -D, git tag -d, git filter-repo,\n"
-            "git filter-branch, git commit --amend, git stash drop/clear, git push\n"
-            "--delete, git update-ref -d, git reflog expire, and git gc --prune all\n"
-            "discard commits/work or rewrite history, so they require explicit user\n"
+            "git filter-branch, git commit --amend, git stash clear, git update-ref -d,\n"
+            "git reflog expire, and git gc --prune all discard commits/work or rewrite\n"
+            "history, so they require explicit user\n"
             "confirmation before ever running - even inside the Local System\n"
             "Management Zone, where raw git is otherwise pre-authorized (see\n"
             "local_system_zone.md's \"Still hard\" list, and its catch-all: \"any\n"
             "other command that discards commits, discards uncommitted work, or\n"
             "rewrites history\").\n\n"
+            "Allowed with an absolute repo path: git -C {dir} push --delete <remote>\n"
+            "<ref> and git -C {dir} stash drop (never --mirror, never stash clear).\n\n"
             "Ask the user to confirm, then have them run the command manually -\n"
             "this hook cannot grant a one-time exception."
         )
