@@ -27,7 +27,7 @@ These govern everything below. If any instruction here conflicts with them, they
 1. Determine `{project_dir}`: `git rev-parse --show-toplevel 2>/dev/null || echo "$PWD"`.
 2. Identify the authoritative spec, in this precedence order:
    - `{project_dir}/AI.md` is the primary spec if it exists.
-   - A **non-empty** `{project_dir}/SPEC.md` holds project-specific rule overrides that **win over AI.md** wherever they conflict — read it and apply every override when interpreting AI.md.
+   - A **non-empty** `{project_dir}/SPEC.md` holds project-specific rule overrides that **win over AI.md** wherever they conflict — read it and apply every override when interpreting AI.md. It may override any template rule, mandatory ones included, but only rules the project plan or the user put there: never create or edit SPEC.md to work around a template rule.
    - `{project_dir}/CLAUDE.md` is normally just a loader pointing at AI.md/IDEA.md. If it still carries real spec content (not loader boilerplate), treat that content as spec too, but note it as a warning to reconcile later — it should become a loader.
    - If none of these exist, stop and report: there is nothing to implement; recommend `bootstrap` (to scaffold from a template) or `spec-migrator` (to author the spec) first.
 3. **Resolve project identity.** Load `{project_dir}/IDEA.md ## Project variables` and resolve every `{placeholder}` token in the spec from those values. If IDEA.md is missing required variables, follow the same rule bootstrap uses (auto-detect only mechanical name/org from the directory; confirm with the user; `internal_name`/`internal_org` are stable once set) — do not guess.

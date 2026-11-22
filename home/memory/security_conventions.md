@@ -226,6 +226,7 @@ Blocklists complement rate limiting and GeoIP — they block known-bad IPs and d
 - Storage: `{data_dir}/security/blocklists/` — separate files for IP and domain lists
 - Sources: configurable per project; document chosen feeds in `IDEA.md`
 - Update cadence: daily, via built-in scheduler
+- Freshness: no per-source age field; every source shares one fixed `max_age` of 72 hours (three missed daily runs); past it the health check reports `degraded` (never `error`) and the last good copy stays in use
 - Middleware order: Blocklist check runs after Allowlist (allowlisted IPs are not blocked) and before RateLimit and GeoIP
 - On hit: return 403 with a generic message; log `blocklist_hit: ip=..., list=...` at INFO level
 

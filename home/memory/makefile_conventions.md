@@ -8,7 +8,7 @@ type: user
 
 - **`.PHONY` is mandatory** — declare every non-file target; prevents collision with files of the same name
 - **Never hardcode `PROJECTNAME` or `PROJECTORG`** — always infer from git remote
-- **`VERSION` from `release.txt`** — never hardcode; see `~/.claude/memory/version_conventions.md`
+- **`VERSION` for local builds only** — explicit `VERSION` env (user override, AI never sets it) > non-empty `release.txt` > devel rule (short commit id, `devel` outside git); never hardcode; CI never uses the Makefile or `release.txt`; see `~/.claude/memory/version_conventions.md`
 - **`@` prefix suppresses echo** — every recipe line that is not intentional debug output uses `@`
 - **`help` is always the first target** — `make` alone prints the help screen
 - **Never used in CI** — workflows run explicit commands with all env vars set; they do not call `make`
@@ -26,7 +26,8 @@ PROJECTORG  := $(shell git remote get-url origin 2>/dev/null | \
     sed -E 's|.*/([^/]+)/[^/]+(\.git)?$$|\1|' || \
     basename "$$(dirname "$$(pwd)")")
 
-VERSION       ?= $(shell cat release.txt 2>/dev/null || echo "devel")
+# Local builds only: VERSION env (user override, AI never sets it) > non-empty release.txt > devel rule (short commit id, "devel" outside git)
+VERSION       ?= $(shell v=; [ -r release.txt ] && v=$$(tr -d '[:space:]' < release.txt); if [ -n "$$v" ]; then echo "$$v"; else git rev-parse --short=7 HEAD 2>/dev/null || echo devel; fi)
 BUILD_EPOCH   := $(shell date -u +%s)
 BUILD_DATE    := $(shell date -u -d @$(BUILD_EPOCH) +"%Y-%m-%dT%H:%M:%SZ")
 COMMIT_ID     := $(shell git rev-parse --short=7 HEAD 2>/dev/null || echo "N/A")
@@ -36,7 +37,7 @@ PLATFORMS     ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 
 - `BUILD_EPOCH` is captured ONCE; `BUILD_DATE` (RFC 3339 UTC) is derived from it, never captured independently
 - `PLATFORMS` is space-separated (consumed by shell for-loops) across 8 OS/arch pairs: linux, darwin, windows, freebsd x amd64, arm64
-- `OFFICIAL_SITE` comes from `site.txt` (single line, URL only), else the env var, else empty — never inferred
+- `OFFICIAL_SITE` comes from `site.txt` (single line, URL only), else the env var, else empty — unset means unset: never inferred, never an invented or `example.com` value
 
 Use `:=` (immediate) for shell-computed values — evaluated once at parse time.
 Use `?=` for overridable variables — allows `make build VERSION=1.2.3-rc1` or `make docker PLATFORMS=linux/amd64`.
@@ -187,6 +188,6 @@ All build commands run inside Docker, so host OS differences are mostly irreleva
 - Source files (`src/`, `tests/`, `*.go`, `*.rs`, `*.ts`, `*.py`)
 - `.git/` directory
 - Base Docker images (`casjaysdev/go:latest`, `casjaysdev/rust:latest`, `node:alpine`, etc.) — only project images are cleaned
-- `AI.md`, `IDEA.md`, `CLAUDE.md`, `release.txt`, `Makefile`
+- `AI.md`, `IDEA.md`, `CLAUDE.md`, `release.txt` (optional), `Makefile`
 
 `clean` removes only build artifacts: `binaries/`, `releases/`, `dist/`, language caches (`target/`, `__pycache__/`, `.mypy_cache/`, `node_modules/`).

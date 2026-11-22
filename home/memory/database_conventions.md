@@ -214,10 +214,10 @@ Fixes `database is locked` (`SQLITE_BUSY`). Applies to every SQLite file the app
 The database and cache each accept ONE full URL: `server.database.url` and `server.cache.url`.
 
 - `DATABASE_URL`, `CACHE_URL` and `DATABASE_DRIVER` are first-run (init-only) seeds and are ignored afterwards
-- The URL scheme picks the driver: `sqlite` (file path), `libsql`/`turso`, `postgres`, `mysql`/`mariadb`, `mssql`, `mongodb`; cache: `valkey`/`redis`
+- The URL scheme picks the driver: `sqlite` (file path) or `libsql`/`turso` (remote) for API and HYBRID projects (single-instance scope: no PostgreSQL, MySQL or MongoDB); SERVER projects add the remote SQL drivers their template lists; cache: `valkey`/`redis`
 - TLS is on only when the URL asks for it, then enabled automatically; the certificate is NOT verified by default (verification is opt-in)
 - Passwords are accepted as typed — the user does not encode them
-- A URL that carries a credential is saved to `secrets.yml`; a URL without one stays in `server.yml`
+- A URL that carries a credential (userinfo, or a `password`, `pwd`, `token` or `authToken` query value) is saved to `secrets.yml`; a URL without one stays in `server.yml`
 - Logs and output show only the redacted form (`scheme://user:********@host:port/name`)
 - A rejected URL never falls back to another database
 

@@ -16,7 +16,7 @@ type: user
 ├── Cargo.toml
 ├── Cargo.lock      # always committed (binary crate)
 ├── Makefile
-├── release.txt     # current version string (e.g. 0.1.0)
+├── release.txt     # local-build version (optional, e.g. 0.1.0)
 └── AI.md
 ```
 
@@ -66,7 +66,8 @@ Source: `~/Projects/github/dockersrc/rust`. Alpine-based, rolling tag, stable + 
 ```makefile
 PROJECT_NAME  := {project_name}
 ORGANIZATION  := {project_org}
-VERSION       := $(shell cat release.txt 2>/dev/null || echo "devel")
+# Local builds only: VERSION env (user override, AI never sets it) > non-empty release.txt > devel rule (short commit id, "devel" outside git)
+VERSION       ?= $(shell v=; [ -r release.txt ] && v=$$(tr -d '[:space:]' < release.txt); if [ -n "$$v" ]; then echo "$$v"; else git rev-parse --short=7 HEAD 2>/dev/null || echo devel; fi)
 COMMIT_ID     := $(shell git rev-parse --short=7 HEAD 2>/dev/null || echo "N/A")
 BUILD_EPOCH   := $(shell date -u +%s)
 OFFICIAL_SITE := $(shell [ -f site.txt ] && cat site.txt || echo "$${OFFICIAL_SITE:-}")

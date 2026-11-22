@@ -62,9 +62,9 @@ This specification defines a complete notification system designed to be integra
 ### 1. Secure by Default
 **Principle**: All channels start disabled. Credentials are never exposed.
 - All notification channels disabled on installation (except SMTP on test success)
-- Settings live in `server.yml` / `yaml.d/` (synced to the database in cluster mode); credentials live in `secrets.yml` (mode `0600`); the admin UI writes the owning area file
+- Settings live in `server.yml` / `yaml.d/` (`yaml.d/` area files are synced through the database in cluster mode; `server.yml` and `secrets.yml` are node-local); credentials live in `secrets.yml` (mode `0600`); the admin UI writes the owning area file
 - All user-facing strings are translated; keys follow the `errors.*` / `notifications.*` pattern
-- Credentials encrypted at rest
+- Credentials kept only in `secrets.yml` (mode `0600`), never in `server.yml` or `yaml.d/`
 - No sensitive data in logs
 - Automatic credential rotation support
 

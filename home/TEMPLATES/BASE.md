@@ -52,6 +52,7 @@ Example:
     internal_org:  casjay
     # primary implementation language
     language:      go
+    # OPTIONAL — only when the user supplies the real URL; omit the key otherwise
     official_site: https://mytool.example.com
 
 ## Business logic
@@ -166,8 +167,8 @@ Update these when their subject changes:
 | **PLAN.md** | Implementation plan (human-owned) | AI may mark done; never rewrite wholesale |
 | **README.md** | User-facing install/usage docs | Usage changes |
 | **LICENSE.md** | Project + dependency licenses | Dependency set changes |
-| **release.txt** | Canonical release version when present | Release version changes |
-| **site.txt** | Optional official site/homepage URL | Official site changes |
+| **release.txt** | Optional local-build version (Makefile only; CI never reads it) | Local version override changes |
+| **site.txt** | Optional official site/homepage URL, only when the user supplies it | Official site changes |
 
 ## Mandatory Compliance Schedule
 
@@ -344,22 +345,37 @@ On-disk paths use the stable pair `{internal_org}` and `{internal_name}` only �
 | Cache | `~/.cache/{internal_org}/{internal_name}/` | `~/Library/Caches/{internal_name}/` | `%LocalAppData%\{internal_org}\{internal_name}\cache\` |
 | Logs | `~/.local/state/{internal_org}/{internal_name}/logs/` | `~/Library/Logs/{internal_name}/` | `%LocalAppData%\{internal_org}\{internal_name}\logs\` |
 
-Config canon: `server.yml` (node-local, `0600`), `yaml.d/*.yml` drop-ins (`0700` directory), and `secrets.yml`; merge order is defaults, `server.yml`, `yaml.d` in byte-wise filename order, then `secrets.yml`, with CLI flags and environment variables above all. Private-path permissions are enforced before config is read.
+Config canon: `server.yml` (node-local), `yaml.d/*.yml` drop-ins and `secrets.yml`, all `0600`, with `yaml.d/` itself `0700`; merge order is defaults, `server.yml`, `yaml.d` in byte-wise filename order, then `secrets.yml`, with CLI flags and environment variables above all. Private-path permissions are enforced before config is read.
 
 ---
 
 # PART 5: VERSION, SITE, AND BUILD METADATA
 
-## `release.txt` (Canonical Version)
+## Version Precedence
 
-- Single-line file at project root containing the canonical version string
-- Use semantic versioning (`MAJOR.MINOR.PATCH`) unless IDEA.md documents another scheme
-- CI/CD and release scripts MUST read version from `release.txt`, not invent one
-- Keep in sync with the language module/package version declaration (`go.mod`, `Cargo.toml`, `package.json`, etc.)
+**CI/CD** never reads `release.txt` or the `VERSION` environment variable:
+
+1. Release (tag push): the pushed tag with a leading `v` stripped
+2. Devel: the short commit id
+3. Beta: the `YYYYMMDDHHMMSS-beta` tag version
+
+**Local builds** (Makefile only):
+
+1. `VERSION` environment variable, only when the user sets it; AI never sets it
+2. `release.txt`, when present and non-empty
+3. Otherwise the devel rule: the short commit id, or `devel` outside a git checkout
+
+## `release.txt` (Optional)
+
+- Optional single-line file at project root holding the local-build version (semantic versioning, `MAJOR.MINOR.PATCH`, unless IDEA.md documents another scheme)
+- Empty or missing means the devel rule
+- Read only by the Makefile; version strings are never invented by scripts or CI
+- When present, it must match the tag pushed for a release
 
 ## `site.txt` (Optional)
 
-- Single-line file containing the official homepage URL when applicable
+- Single-line file containing the official homepage URL, created only when the user supplies the real URL — never guessed or invented
+- Unset means unset: with no official site, `official_site` is absent from IDEA.md, there is no `site.txt`, `OFFICIAL_SITE` is empty in the Makefile, Docker build args and CI, and the embedded value is the empty string
 - Embedded into the binary at build time via `-ldflags` or equivalent
 
 ## Build Metadata Injection
@@ -370,12 +386,12 @@ Inject at build time (via `-ldflags`, `build.rs`, `build.js`, or equivalent):
 
 | Variable | Default | Source |
 |----------|---------|--------|
-| `Version` | `dev` | `release.txt` |
+| `Version` | `devel` | Version precedence above |
 | `CommitID` | `unknown` | `git rev-parse --short=7 HEAD` |
 | `BuildEpoch` | `0` | `date -u +%s` (captured once per build) |
-| `OfficialSite` | `` | `site.txt` (if present) |
+| `OfficialSite` | `` | `site.txt` (if present); empty otherwise |
 
-The artifact embeds version, commit id, and build epoch. Version strings come from `release.txt` — hardcoded version literals anywhere in code, scripts, or CI are violations.
+The artifact embeds version, commit id, and build epoch. Version strings follow the precedence above — hardcoded version literals anywhere in code, scripts, or CI are violations.
 
 ---
 
@@ -390,7 +406,7 @@ The artifact embeds version, commit id, and build epoch. Version strings come fr
 - **Parameterized queries** — never interpolate user input into SQL, shell commands, or template strings
 - **Constant-time comparison** — for all credential/token comparison operations
 - **No hardcoded secrets** — credentials live in `secrets.yml` (mode `0600`, never committed); init-only environment variables seed it once on first run, then are ignored
-- **API tokens** — API credentials live in a single `tokens` table, hashed at rest, presented only as `Authorization: Bearer {token}`
+- **API tokens** — API credentials live in a single `tokens` table, hashed at rest, one prefix per holder, presented only as `Authorization: Bearer {token}`; the operator token is the built-in admin token kept in `secrets.yml`
 - **Database and cache connections** — connection strings arrive via the init-only `DATABASE_URL` / `CACHE_URL` variables; mechanics are in the shape template
 - **Internationalization** — all user-facing text is translated; no hardcoded strings
 - **Health** — expose `healthz` with fixed output; suppress successful health requests from request logs
@@ -466,9 +482,11 @@ Channels differ ONLY in context, never in steps:
 |---------|---------|------------------------|------------|-----------|
 | Stable | Version tag | Tag is the version | No | Permanent |
 | Beta | Beta branch push | Timestamp-beta tag | Yes | Limited |
-| Devel | Schedule | Rolling `devel` tag, deleted and recreated each run; version = short commit id | Yes | Rolling |
+| Devel | Schedule and push to `main`/`master` | Rolling `devel` tag, deleted and recreated each run; version = short commit id | Yes | Rolling |
 
 Never fork the pipeline logic per channel — one skeleton, parameterized by context.
+
+There is no `devel` or `dev` branch: devel builds come from `main`/`master` only. A pull request runs CI only and never publishes an image or a release; merging is a push to the target branch and triggers that branch's workflows. A stable release is a tag push, never a merge, and release builds use the pushed tag.
 
 Every workflow (CI and every release channel) must also support an on-demand manual run in addition to its normal trigger, so it can be re-run without a dummy commit — `workflow_dispatch` on GitHub/Gitea/Forgejo; GitLab and Jenkins pipelines are already manually runnable from their own UI with no extra config.
 
@@ -477,7 +495,7 @@ Every workflow (CI and every release channel) must also support an on-demand man
 Before tagging a release:
 
 - [ ] All CI checks green on main
-- [ ] `release.txt` updated to new version
+- [ ] Release tag pushed (`v{version}`); if `release.txt` is present it matches the tag
 - [ ] `IDEA.md` up to date with any new features
 - [ ] `README.md` up to date with any usage changes
 - [ ] `LICENSE.md` up to date with any new dependencies
@@ -532,7 +550,7 @@ Must contain:
 - [ ] `README.md` created
 - [ ] `LICENSE.md` created (MIT + dependency attribution)
 - [ ] `.gitignore` created
-- [ ] `release.txt` created (`0.1.0`)
+- [ ] `release.txt` is empty, missing, or holds the local-build version (optional; CI never reads it)
 - [ ] `docker/Dockerfile` created and builds successfully
 - [ ] `docker/compose.yml`, `compose.dev.yml`, `compose.test.yml` created
 - [ ] `docker/entrypoint.sh` created
@@ -558,7 +576,7 @@ The main instance runs this checklist once, after reviewing the full diff. Subag
 ## Pre-Release Checklist
 
 - [ ] All CI checks green
-- [ ] `release.txt` updated
+- [ ] Release tag pushed; `release.txt`, if present, matches it
 - [ ] Artifacts built for all targets
 - [ ] SBOM generated
 - [ ] `sha256.txt` and `sha512.txt` manifests generated LAST

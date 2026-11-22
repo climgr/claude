@@ -19,7 +19,7 @@ type: user
 ├── go.mod
 ├── go.sum
 ├── Makefile
-├── release.txt     # current version string (e.g. 0.1.0)
+├── release.txt     # local-build version (optional, e.g. 0.1.0)
 └── AI.md
 ```
 
@@ -32,7 +32,8 @@ Source always under `src/` — never at repo root. `package main` entry point is
 PROJECTNAME := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)(\.git)?$$|\1|' || basename "$$(pwd)")
 PROJECTORG  := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(\.git)?$$|\1|' || basename "$$(dirname "$$(pwd)")")
 
-VERSION       ?= $(shell cat release.txt 2>/dev/null || echo "devel")
+# Local builds only: VERSION env (user override, AI never sets it) > non-empty release.txt > devel rule (short commit id, "devel" outside git)
+VERSION       ?= $(shell v=; [ -r release.txt ] && v=$$(tr -d '[:space:]' < release.txt); if [ -n "$$v" ]; then echo "$$v"; else git rev-parse --short=7 HEAD 2>/dev/null || echo devel; fi)
 BUILD_EPOCH   := $(shell date -u +%s)
 BUILD_DATE    := $(shell date -u -d @$(BUILD_EPOCH) +"%Y-%m-%dT%H:%M:%SZ")
 COMMIT_ID     := $(shell git rev-parse --short=7 HEAD 2>/dev/null || echo "N/A")
@@ -482,4 +483,4 @@ The named volume is shared across all Go projects on the same machine — this i
 
 ## Version Source
 
-`release.txt` is the version file — single line, semver (e.g. `0.1.0`). The Makefile reads it with `cat release.txt 2>/dev/null || echo "devel"`. Never hardcode the version in the Makefile.
+`release.txt` is the optional local-build version file — single line, semver (e.g. `0.1.0`). Only the Makefile reads it, for local builds, when present and non-empty; empty or missing means the devel rule (short commit id, `devel` outside git), and an explicit `VERSION` env var (user only, AI never sets it) overrides it. CI never reads it. Never hardcode the version in the Makefile.

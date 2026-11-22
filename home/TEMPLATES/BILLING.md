@@ -36,7 +36,7 @@ This specification defines a complete billing and subscription management system
 - **Payment Provider Agnostic**: Supports 47+ payment gateways, all disabled by default
 - **Deployment Agnostic**: Cloud, on-premise, hybrid, or distributed
 - **Business Model Agnostic**: Subscription, one-time, usage-based, or hybrid pricing
-- **Configuration Method**: Admin UI writes provider credentials to `secrets.yml` (mode `0600`, encrypted at rest, never committed)
+- **Configuration Method**: Admin UI writes provider credentials to `secrets.yml` (mode `0600`, never committed)
 - **Localization**: All user-facing strings are translated; keys follow the `errors.*` / `notifications.*` pattern
 
 ### What This Specification Defines
@@ -2459,7 +2459,7 @@ No provider code runs unless:
 #### Configuration Storage
 ```
 Provider configurations stored in:
-  - `secrets.yml` (mode 0600, encrypted at rest, never committed)
+  - `secrets.yml` (mode 0600, never committed)
   - Never in code
   - Written by the admin UI
   - Billing API keys live in the single hashed `tokens` table
@@ -2625,7 +2625,7 @@ BILLING-012: All providers failed
 ## 📝 Critical Implementation Notes
 
 1. **All Payment Providers Disabled by Default**: System ships with 47+ provider integrations, ALL disabled
-2. **Credentials in secrets.yml Only**: Provider credentials NEVER in code or committed files; the admin UI writes `secrets.yml` (0600, encrypted at rest)
+2. **Credentials in secrets.yml Only**: Provider credentials NEVER in code or committed files; the admin UI writes `secrets.yml` (mode 0600)
 3. **Integrated Help Required**: All provider setup instructions must be in-UI with tooltips
 4. **Never Store Sensitive Payment Data**: Always use tokenization
 5. **Always Generate Invoices**: Even if payment fails or all providers are down

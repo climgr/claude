@@ -77,7 +77,7 @@ Read `AI.md` and `IDEA.md` before acting on this project.
 
 ### 2c. Check SPEC.md for rule overrides
 
-If `{project_dir}/SPEC.md` exists, read it. An empty SPEC.md means no overrides — proceed with AI.md as-is. A non-empty SPEC.md means it contains project-specific rule overrides: **SPEC.md wins over AI.md wherever the two conflict.** Apply every SPEC.md override when interpreting and executing AI.md's PARTs in Phase 3 — do not execute an AI.md directive that a non-empty SPEC.md explicitly contradicts.
+If `{project_dir}/SPEC.md` exists, read it. An empty SPEC.md means no overrides — proceed with AI.md as-is. A non-empty SPEC.md means it contains project-specific rule overrides: **SPEC.md wins over AI.md wherever the two conflict.** Apply every SPEC.md override when interpreting and executing AI.md's PARTs in Phase 3 — do not execute an AI.md directive that a non-empty SPEC.md explicitly contradicts. Never create or edit SPEC.md to work around a template rule; it only holds rules the project plan or the user put there.
 
 ### 2d. Ensure the WHAT (`{project_dir}/IDEA.md` product definition) — never fabricate it
 
@@ -131,7 +131,7 @@ For each file the spec says must exist: create it if absent. If a file already h
 Set up the project skeleton per the spec's layout:
 - Create the directory tree (source tree, `docker/`, `scripts/`, `binaries/`, etc.) exactly as PART 3 prescribes
 - Initialize the module/package system if not already done (e.g. `cargo init`, `go mod init`) and scaffold the primary entry point per the spec
-- Create `release.txt` (canonical version string) and `site.txt` (official site URL) — PART 3 defines both
+- `release.txt` (optional local-build version, Makefile only; empty or missing means the devel rule) and `site.txt` (optional official site URL, never guessed or an `example.com` value) are optional: create one only when the project has a real value — never write a placeholder or fabricate a version or URL
 - All commands that touch the toolchain run inside Docker per the execution hierarchy (`~/.claude/memory/execution_hierarchy.md`) — never run `go`, `cargo`, or similar directly on the host
 
 ### PART 4 — OS-specific paths

@@ -465,7 +465,7 @@ Use the full CSS variable block from the **Design Token System** section above â
 
 ### Theme implementation (mobile)
 - iOS: `@Environment(\.colorScheme)` + `Color(uiColor: .systemBackground)` semantic colors
-- Android: Material You / Dynamic Color + `isSystemInDarkTheme()`
+- Android: Material You / Dynamic Color + `isSystemInDarkTheme()`; the persisted theme choice always wins over the system setting, and `auto` follows the system dark-mode setting live with no restart
 - Flutter: `ThemeData` with `brightness` from `MediaQuery.platformBrightness`
 - User override: explicit dark/light setting in app preferences, persisted via platform storage
 

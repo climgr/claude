@@ -219,3 +219,12 @@ out of scope for the task they were found during.
       is still blocked by `no-history-rewrite.sh`; decide whether to allow
       it as `git -C {abs-dir} branch -D` like the other scoped deletes.
       `git worktree remove`/`prune` and `git branch -d` were never blocked.
+
+- [ ] `home/memory/version_conventions.md` still says to keep Cargo.toml in
+      sync with release.txt and that `--version` is never the word `devel`;
+      release.txt is now optional and local non-git builds report `devel`.
+      Reword once the template states the rule.
+- [ ] `go-lint.md` / `rust-lint.md` have no Dockerfile required-packages
+      check (bash, curl, tor, i2pd, tini, tzdata, ca-certificates); rust-lint
+      has no VERSION check. Add if wanted. Android template CI/version rules
+      were not checked against home.

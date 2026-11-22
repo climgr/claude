@@ -1,12 +1,12 @@
 ---
 name: Version conventions
-description: How version strings originate in release.txt, flow through the build pipeline, and land in binaries, Docker images, and GitHub releases
+description: How version strings originate (CI channel rule, local release.txt), flow through the build pipeline, and land in binaries, Docker images, and GitHub releases
 type: user
 ---
 
-## Source of Truth: `release.txt`
+## Source of Truth: CI tag/channel; `release.txt` for local builds
 
-`release.txt` at the project root is the canonical version source for all projects:
+CI derives the version from the channel (see CI/CD Version Precedence). `release.txt` at the project root is the optional version source for local Makefile builds only:
 
 ```
 1.3.0
@@ -14,9 +14,11 @@ type: user
 
 - One line, semver format (`MAJOR.MINOR.PATCH`), no `v` prefix
 - Never hardcode the version string anywhere else in source code
-- Makefile reads it: `VERSION ?= $(shell cat release.txt 2>/dev/null || echo "devel")`
-- `?=` allows one-time override: `make build VERSION=1.3.1-rc1`
-- If `release.txt` is absent, the build falls back to `devel` — signals an unversioned build. The reported version (`--version`) is SemVer for a release, `YYYYMMDDHHMMSS-beta` for a beta, and the short commit id for a devel build; never the word `devel`, and `dev` only when none of these apply
+- Optional: empty or missing means the devel rule
+- Only the Makefile reads it (local testing and debugging); CI/CD never reads it
+- Makefile: `VERSION ?= $(shell v=; [ -r release.txt ] && v=$$(tr -d '[:space:]' < release.txt); if [ -n "$$v" ]; then echo "$$v"; else git rev-parse --short=7 HEAD 2>/dev/null || echo devel; fi)`
+- `?=` lets an explicitly set `VERSION` env var override it: `make build VERSION=1.3.1-rc1` (user only; AI never sets `VERSION`)
+- If `release.txt` is empty or missing, the devel rule applies: the short commit id, or `devel` outside a git checkout. The reported version (`--version`) is SemVer for a release, `YYYYMMDDHHMMSS-beta` for a beta, and the short commit id for a devel build; never the word `devel`, and `dev` only when none of these apply
 
 ---
 
@@ -30,7 +32,7 @@ release.txt
             └─> Release — GitHub release tag v{version}, checksum file, SBOM
 ```
 
-Every downstream consumer reads from the single Makefile `VERSION` variable — never re-reads `release.txt` directly.
+Every downstream consumer reads from the single Makefile `VERSION` variable (local builds) — never re-reads `release.txt` directly. CI computes `VERSION` per channel and never reads `release.txt`.
 
 ---
 
@@ -107,13 +109,13 @@ BUILD_DATE = os.environ.get("BUILD_DATE", "unknown")
 - `YYMM` = two-digit year + two-digit month (e.g. `2505` for May 2025) — monthly snapshot pin
 - **Never tag a non-release build as `:latest`** — `:latest` is for tagged releases only
 - `:{commit_sha_short}` on every push enables pinning to a specific build
-- `:devel` is NOT part of the push tags: it comes from a separate `build-devel` job inside `docker.yml` (schedule + non-tag push, gated by `if:`), built from `docker/Dockerfile.dev`
+- `:devel` is NOT part of the push tags: it comes from a separate `build-devel` job inside `docker.yml` (daily schedule + `workflow_dispatch` + push, gated by `if:` to `main`/`master` only; there is no `devel` or `dev` branch), built from `docker/Dockerfile.dev`
 
 ---
 
 ## Git Release Tag Convention
 
-A stable git tag may be `v1.2.3` or `1.2.3`; `release.txt` never carries the `v`. The tag below uses the `v` form:
+A stable git tag may be `v1.2.3` or `1.2.3`; CI strips a leading `v` to get the version, and `release.txt` (local builds) never carries the `v`. The tag below uses the `v` form:
 
 ```
 release.txt: 1.3.0
@@ -128,7 +130,7 @@ CI detects a tagged release via `startsWith(github.ref, 'refs/tags/v')`.
 
 ## Bumping the Version
 
-1. Edit `release.txt` — update to the new semver string
+1. Edit `release.txt` (if the project keeps one) — update to the new semver string
 2. For Rust: update `[package] version` in `Cargo.toml` to match
 3. Commit: `📦 Bump version to {version} 📦` — standalone commit, no other changes
 4. CI tags on release: `git tag v{version}` (triggered by the release workflow or manually for hotfixes)
@@ -139,13 +141,17 @@ Never mix a version bump with feature or fix changes — version bump is always 
 
 ## CI/CD Version Precedence
 
-| Source | Priority | When used |
-|--------|----------|-----------|
-| `VERSION` environment variable | Highest (wins over `release.txt` when set) | Explicit override |
-| `release.txt` | High | Normal projects — always present |
-| Git tag (`v*`) | Fallback | `release.txt` absent; running from a tag |
-| `git describe` | Fallback | No tag on this commit |
-| `"0.1.0-dev"` | Last resort | New project, no release yet |
+CI/CD (workflows never read `release.txt` or the `VERSION` env var):
+
+1. Release (tag push): the pushed tag with a leading `v` stripped (`v1.2.3` and `1.2.3` both give `1.2.3`)
+2. Devel: `git rev-parse --short=7 HEAD`
+3. Beta: the `YYYYMMDDHHMMSS-beta` tag version
+
+Local builds (Makefile only — testing and debugging):
+
+1. `VERSION` environment variable, only when explicitly set by the user (AI never sets it)
+2. `release.txt`, when present and non-empty
+3. Otherwise the devel rule: short commit id, or `devel` outside a git checkout
 
 ---
 

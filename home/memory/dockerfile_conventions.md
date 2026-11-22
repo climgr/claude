@@ -117,7 +117,7 @@ Section headers use `=` fence comments:
 FROM casjaysdev/go:latest AS builder
 
 ARG TARGETARCH
-ARG VERSION=dev
+ARG VERSION=devel
 ARG BUILD_DATE
 ARG VCS_REF
 
@@ -141,7 +141,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build \
 ```dockerfile
 FROM alpine:latest
 
-ARG VERSION=dev
+ARG VERSION=devel
 ARG BUILD_DATE
 ARG VCS_REF
 ARG LICENSE=MIT
@@ -228,7 +228,7 @@ This ensures workflows function correctly after a fork without editing any value
 
 ```dockerfile
 # Install packages
-RUN apk add --no-cache bash tini ...
+RUN apk add --no-cache bash curl tini tor i2pd tzdata ca-certificates ...
 
 # Create runtime directories
 RUN mkdir -p /config /data/...
@@ -269,6 +269,8 @@ ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
 - Internal port is always 80; host mapping is in `compose.yml`
 - `docker/rootfs/` mirrors Linux FHS — files placed there are `COPY`'d into the image at `/`
 - `apk add --no-cache` — never without `--no-cache`
+- **Image contract** — EVERY image the project ships (release, `:devel`, the all-in-one Debian image, any variant) installs `bash`, `curl`, `tor`, `i2pd`, `tini`, `tzdata` and `ca-certificates` in its FINAL stage. `tor` and `i2pd` are installed even though I2P is opt-in: a missing package is an image bug, never a runtime fallback. A project may ADD packages, never remove these
+- **Image check** — after every build, CI and `tests/docker.sh` run `docker run --rm --entrypoint sh {image} -c 'for c in bash curl tor i2pd tini; do command -v "$c" || exit 1; done'` and fail on any missing command
 - No secrets, credentials, or `.env` values baked into the image
 
 ## Non-root User
@@ -310,7 +312,7 @@ Rules:
 - **Same image structure as release** — not a toolchain image; the compiled binary is baked in, not mounted at runtime
 - **Binary runs in debug mode** — pass debug flags via `ENV` or `CMD`; do not change the image structure
 - **`MODE=devel`** — set via `ENV` in `Dockerfile.dev` (not the release `Dockerfile`). The application must accept `dev`, `devel`, and `development` as synonymous valid values for `MODE`
-- **Pushed to the registry** as `{project_org}/{project_name}:devel` — built by a `build-devel` **job inside the same `docker.yml`** workflow that builds the standard image (never a separate `docker-devel.yml` file). `docker.yml`'s `on:` block gains a `schedule: - cron: '0 4 * * *'` trigger alongside its existing push/tag/`workflow_dispatch` triggers; `build-devel` runs on that schedule plus every non-tag push, while `build-standard` runs on every push except the schedule event. One file, shared triggers/env/concurrency group, no duplicated workflow boilerplate. Where an all-in-one image exists (`docker/Dockerfile.aio`), it is *also* a single-file, multi-job workflow (`docker-aio.yml`) — the AIO image is the only image type that gets its own dedicated workflow file, because it is a materially different image (different base, different service composition), not just a different build mode. There is no `Dockerfile.dev.aio` by default, so `docker-aio.yml` normally has no devel job/tag unless a project explicitly adds that variant
+- **Pushed to the registry** as `{project_org}/{project_name}:devel` — built by a `build-devel` **job inside the same `docker.yml`** workflow that builds the standard image (never a separate `docker-devel.yml` file). `docker.yml`'s `on:` block gains a `schedule: - cron: '0 4 * * *'` trigger alongside its existing push/tag/`workflow_dispatch` triggers; `build-devel` runs on that schedule, `workflow_dispatch` and pushes, but only on `main`/`master` (there is no `devel` or `dev` branch), while `build-standard` runs on every push except the schedule event. One file, shared triggers/env/concurrency group, no duplicated workflow boilerplate. Where an all-in-one image exists (`docker/Dockerfile.aio`), it is *also* a single-file, multi-job workflow (`docker-aio.yml`) — the AIO image is the only image type that gets its own dedicated workflow file, because it is a materially different image (different base, different service composition), not just a different build mode. There is no `Dockerfile.dev.aio` by default, so `docker-aio.yml` normally has no devel job/tag unless a project explicitly adds that variant
 - **No source mount, no hot-reload** — source is compiled into the image at build time; for live-reload development use the compose dev service with the `:devel` image
 - Starts with `tini → entrypoint.sh → {binary} --debug` (or equivalent debug flag for the project)
 
@@ -360,7 +362,7 @@ jobs:
 
   build-devel:
     runs-on: ubuntu-26.04
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/'))
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 

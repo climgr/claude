@@ -93,6 +93,7 @@ Successful (2xx) health requests are never written to `access.log` or to the con
 - Only the banner and log lines go to the console at startup; no separate "Ready" or "feature enabled" lines
 - The banner is built as one string and written in ONE write while holding the logger lock, so no log line lands inside it
 - Banner header: `{app} · {version}`
+- Banner start time follows the server timezone (`TZ`), human-readable (`%B %d, %Y at %H:%M:%S %Z`) — not forced to UTC
 - A disabled optional feature logs nothing at INFO or above
 - A failure of an enabled feature logs `Failed to start {feature}: {reason}` once at WARN
 

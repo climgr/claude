@@ -104,6 +104,8 @@ Use `$SHORT_SHA` (7 chars, matches the standard used in Makefiles/GitHub Actions
 
 Never hardcode the registry URL — always use `$CI_REGISTRY` and `$CI_REGISTRY_IMAGE`.
 
+**Generated text is fully expanded:** GitLab keywords outside `script:` (`release:` name, description and assets, `artifacts:paths`) expand only `$VAR` / `${VAR}`, never `${VAR:0:7}` or `${VAR#v}`. Compute the value in an upstream job and pass it with a dotenv report (for the rolling devel release: `echo "RELEASE_VERSION=${COMMIT_ID}" > release.env` with `artifacts: reports: dotenv: release.env`, then `name: "Devel Build ${RELEASE_VERSION}"`). The `:devel` image job and the devel release run only on `$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"` plus the daily schedule; there is no `devel`/`dev` branch.
+
 ---
 
 ## Security Stage

@@ -17,11 +17,11 @@ The SERVER and API templates differ significantly. The API template has **no acc
 |------|----------------|--------------|
 | PART 17 | ADMIN PANEL — full SSR HTML admin UI, isolated auth, separate admin sessions | EMAIL & NOTIFICATIONS — server notification emails only (no user account emails) |
 | Parts 18–33 | SERVER 18–33 (Email … Client & Agent) | API 17–32 — shifted down by one vs SERVER (PART 0–16 are identical in both) |
-| Authentication | Shared `/server/auth/login` for admin and user accounts; sessions; unified `tokens` table (admin, user, org, agent tokens) | **Owner tokens only** — anonymous resource owners hold a primary token (cookie `{project_name}_owner_token_XXXXXX` / Bearer) plus linked tokens in the `api_tokens`/`owners` tables, managed at `/server/preferences/tokens`; no login, no sessions, no accounts; rate limiting remains the abuse defense |
+| Authentication | Shared `/server/auth/login` for admin and user accounts; sessions; unified `tokens` table (admin, user, org, agent tokens) | **Owner tokens only** — anonymous resource owners hold a primary token (cookie `{project_name}_owner_token_XXXXXX` / Bearer) plus linked tokens (prefix `own_`) in the `api_tokens`/`owners` tables; the operator token `server.token` (`adm_`, in `secrets.yml`) is the only admin token, managed at `/server/preferences/tokens`; no login, no sessions, no accounts; rate limiting remains the abuse defense |
 | Admin API endpoints | PART 14: full admin API (`/api/{api_version}/server/{admin_path}/...`) | **None** — no admin API endpoints; no `{admin_path}`; administration is `server.yml` + CLI only |
-| Configuration | Admin WebUI + server.yml + database sync | **File-only**: server.yml with hot-reload; no DB config sync, no admin WebUI |
+| Configuration | Admin WebUI + file config (`server.yml`, `yaml.d/*` area files, `secrets.yml`); the database holds shared settings only in Cluster Mode (Config Sync), never in single-instance mode | **File-only**: server.yml with hot-reload; file-backed (`server.yml`, `yaml.d/*`, `secrets.yml`), never the database; no DB config sync, no admin WebUI |
 | Users / Orgs / Custom domains | SERVER PARTs 34–36 (optional) | **Absent** — no user management, no orgs, no custom domains; SERVER PART 37 (IDEA.md Reference) = API PART 33 |
-| Agent auth | Agent tokens required (`adm_agt_/usr_agt_/org_agt_` prefixes, unified `tokens` table) | **No agent token types** — the `adm_agt_/usr_agt_/org_agt_` prefixes do not exist; the CLI `--token` is an owner token |
+| Agent auth | Agent tokens required: no separate prefix, an agent token is an `adm_`/`usr_`/`org_` token with scope `agent` (unified `tokens` table, `agent_id` column) | **No agent tokens** — no `agent` scope; the CLI `--token` is an owner token (`own_`) |
 
 Parts 18 through 33 shift by one number (SERVER 18+ = API 17+); SERVER 34–36 have no API counterpart and SERVER 37 = API 33. Verify with `grep -n '^# PART'` on the current templates before relying on any number. The PART 17 structural difference (Admin Panel vs Email) is accompanied by the removal of the entire auth/admin/user subsystem in API.
 
@@ -81,7 +81,7 @@ grep -rn -- "/api/.*admin\|adminAPI\|AdminAPI" "{project_dir}/src" 2>/dev/null |
 grep -rn -- "AuthMiddleware\|SessionMiddleware\|TokenValidat\|BearerToken\|apiToken\|agentToken" "{project_dir}/src" 2>/dev/null | grep -v "_test\.go" | head -20
 
 # Agent token fields and --token flag in CLI/agent binaries
-grep -rn -- "agent.*token\|--token\|AGENT_TOKEN\|adm_agt\|usr_agt\|org_agt" "{project_dir}/src" 2>/dev/null | grep -v "_test\.go" | head -20
+grep -rn -- "agent.*token\|--token\|AGENT_TOKEN\|_agt_\|scope.*agent" "{project_dir}/src" 2>/dev/null | grep -v "_test\.go" | head -20
 ```
 
 ### Part number references in rule files and docs
@@ -147,10 +147,10 @@ For each `.claude/rules` file or `docs/` file that referenced SERVER's PART 17 (
 Read AI.md PART 11 in full (Security & Logging for the API template — owner tokens, no accounts). For each auth artifact found:
 - Remove all admin API routes (`/api/{api_version}/server/{admin_path}/...`, `/api/{api_version}/admin/...`); keep the public `/server/*` pages and `/api/{api_version}/server/preferences`
 - Remove the shared `/server/auth/login` flow, session handling, and account/admin middleware
-- Replace the unified `tokens` table (admin/user/org/agent tokens) with the API template's `owners` + `api_tokens` owner-token model (primary + linked tokens, `/server/preferences/tokens`, `owner_token` cookie)
+- Replace the unified `tokens` table (admin/user/org/agent tokens) with the API template's `owners` + `api_tokens` owner-token model (primary + linked tokens, `own_` prefix, `token_last4` written with the hash for the masked list, `/server/preferences/tokens`, `owner_token` cookie)
 - Remove agent-token types: `{PROJECT_NAME}_AGENT_TOKEN` env var handling and agent `--token` handling (the CLI `--token` stays, as an owner token)
 - Remove admin password/token storage from the database schema
-- Verify no `adm_agt_/usr_agt_/org_agt_` token prefixes remain anywhere
+- Verify no `_agt_` token prefixes and no `agent` token scope remain anywhere (leftover `tok_` prefixes become `own_`; `server.token` is `adm_`)
 - Remove ConfigManager DB sync (file-only hot-reload per the API spec)
 
 **Group E — Part number drift**
@@ -199,7 +199,7 @@ Read AI.md PART 14 in full (Admin API for the SERVER template) and PART 11 (unif
 - Add agent token fields and `--token` CLI flag to agent binaries
 - Add `{PROJECT_NAME}_AGENT_TOKEN` env var handling
 - Add admin password/token storage to the database schema (argon2id hashing)
-- Add `adm_agt_/usr_agt_/org_agt_` token prefix generation and validation
+- Add the `agent` token scope (an `adm_`/`usr_`/`org_` token with `agent_id` set, accepted only on the agent routes of its owner type); agent tokens have no prefix of their own
 - Add ConfigManager DB sync alongside file-watch hot-reload
 - Admin HTML routes (PART 17) must not overlap with admin API routes — verify no path conflicts
 

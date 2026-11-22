@@ -269,6 +269,8 @@ pipeline {
 }
 ```
 
+Go on Jenkins: caches are persistent directories under `${JENKINS_HOME}/cache/{project_org}/{project_name}/` (`GO_CACHE` = `.../go-mod`, `GO_BUILD` = `.../go-build`, created by a Setup stage), never user home paths.
+
 Language-specific: `casjaysdev/rust:latest` pre-installs `cargo-audit`, `cargo-deny`, etc. — swap `go build`/`go test`/`govulncheck` for `cargo build`/`cargo test`/`cargo audit`. Rust projects default to no `docker/Dockerfile.build` (see Toolchain Image section for the escape hatch). The agent image resolves dynamically from the git remote — no hardcoded org or project name.
 
 ---
@@ -449,13 +451,17 @@ jobs:
 |------|-------------|
 | **NEVER use Makefile in CI** | Workflows have explicit commands with all env vars |
 | **Multi-platform parity** | All five providers must match — same platforms, same env vars, same logic |
-| **VERSION precedence** | `release.txt` wins when present; otherwise use the workflow/build-specific fallback (tag, beta timestamp, etc.) |
-| **LDFLAGS** | `-s -w -X 'main.Version=...' -X 'main.CommitID=...' -X 'main.BuildDate=...' -X 'main.OfficialSite=...'` |
+| **VERSION precedence** | CI release = pushed tag with `v` stripped; CI devel = short commit id; CI beta = `YYYYMMDDHHMMSS-beta`; CI never reads `release.txt` or the `VERSION` env var; local Makefile builds = `VERSION` env (user override, AI never sets it) > non-empty `release.txt` > devel rule (short commit id, `devel` outside git) |
+| **Generated text is fully expanded** | Release notes, release names and descriptions, asset names and links, labels and any other text a workflow generates MUST contain real values, never a literal `${VAR}`, `${{ … }}` or a spec placeholder such as `{project_name}`. Shell: build a file with an unquoted heredoc or `printf` (a quoted heredoc is only for text that must stay literal). GitHub/Gitea/Forgejo YAML values use `${{ env.X }}`; shell `${X}` is not expanded there. GitLab keywords outside `script:` (`release:` name, description and assets, `artifacts:paths`) expand only `$VAR` / `${VAR}`, never `${VAR:0:7}` or `${VAR#v}`: compute the value in an upstream job and pass it with a dotenv report. Jenkins: Groovy `"…"` strings interpolate, `'…'` strings do not. Any workflow that builds its own notes or description file runs the guard step below before publishing |
+| **LDFLAGS** | `-s -w -X 'main.Version=...' -X 'main.CommitID=...' -X 'main.BuildEpoch=...' -X 'main.OfficialSite=...'` (BuildDate is derived from BuildEpoch at runtime, not embedded) |
 | **Docker builds on every push** | Any branch push triggers Docker image build |
-| **Docker tags** | Any push → `devel`, `{commit}`; beta → adds `beta`; tag → `{version}`, `latest`, `YYMM`, `{commit}` |
+| **Docker tags** | Any push → `{commit}`; beta → adds `beta`; tag → `{version}`, `latest`, `YYMM`, `{commit}` |
+| **Devel image is a job in docker.yml** | `:devel` is built from `docker/Dockerfile.dev` by the `build-devel` job inside `docker.yml` (daily schedule `0 4 * * *` + push to `main`/`master` + `workflow_dispatch` on `main`/`master`) — never a separate workflow file, and never by the `build-standard` job |
+| **No devel or dev branch** | Devel builds come from `main` (and `master`); the only branch-push workflows are `main`/`master` and `beta` |
+| **Pull requests and merges** | A pull request runs `ci.yml` only (build, test, lint, coverage, secret scan, workflow policy) — it never publishes an image or a release, and a fork PR receives no secrets. Merging into `main`/`master` is a push to that branch, so it triggers `ci.yml`, `devel.yml` (the rolling `devel` release) and `docker.yml` (the `{commit_id}` image and the `:devel` image). Merging into `beta` triggers `beta.yml`; a stable release is a tag push, never a merge. A PR and its target branch have different refs, so their concurrency groups never cancel each other |
 | **Workflow permissions** | Default to read-only / least privilege; grant write only to the specific release/publish job that needs it |
 | **Use build image — never install tools inline** | Workflows pull `{project_org}/{project_name}:build` for all build/test/lint/scan steps. Never `apk add`, `apt-get`, `go install`, `cargo install`, or any inline tool install in a workflow step. All tooling lives in `docker/Dockerfile.build`, rebuilt monthly |
-| **Workflow portability — no hardcoded values** | Org name, project name, registry, official site: never hardcoded. Use provider-supplied variables so the workflow works after a fork without edits. GitHub: `github.repository_owner` / `github.event.repository.name`. GitLab: `$CI_REGISTRY_IMAGE` / `$CI_PROJECT_NAMESPACE` / `$CI_PROJECT_NAME`. Jenkins: parse from `${env.GIT_URL}` |
+| **Workflow portability — no hardcoded values** | Org name, project name, registry, official site: never hardcoded; `OFFICIAL_SITE` is optional in CI — `site.txt` wins, else the `OFFICIAL_SITE` repository secret, else empty (unset means unset, never an invented or `example.com` value), and it is passed into the build as an ldflag/build arg. Use provider-supplied variables so the workflow works after a fork without edits. GitHub: `github.repository_owner` / `github.event.repository.name`. GitLab: `$CI_REGISTRY_IMAGE` / `$CI_PROJECT_NAMESPACE` / `$CI_PROJECT_NAME`. Jenkins: parse from `${env.GIT_URL}` |
 | **Manual trigger on every workflow** | Every workflow must be runnable on demand, in addition to its normal trigger(s), so it can be re-run without a dummy commit. GitHub/Gitea/Forgejo: add `workflow_dispatch:` to every `on:` block (`ci.yml`, `release.yml` — with a tag input, `build-toolchain.yml` — already required). GitLab: pipelines are always manually runnable from the UI; add a `when: manual` rule only for a stage that should NOT run automatically. Jenkins: declarative pipelines are always manually triggerable ("Build with Parameters") — no extra config needed |
 
 ## Workflow Permissions
@@ -565,6 +571,19 @@ GitHub Actions has no native cross-workflow `needs:`. Use branch protection inst
 
 ## Workflow Best Practices
 
+### Generated-text guard
+
+A workflow that builds its own notes or description file checks it before publishing, so an unexpanded variable can never reach a release:
+
+```yaml
+- name: Check generated text
+  run: |
+    if grep -nE '\$\{|\{\{|\{(project_name|project_org|version)\}' RELEASE_NOTES.md; then
+      echo "::error::RELEASE_NOTES.md still contains an unexpanded variable or placeholder. Build it with an unquoted heredoc or printf so shell variables expand."
+      exit 1
+    fi
+```
+
 ### Concurrency groups
 
 Every workflow that runs on push or pull_request must define a concurrency group to cancel stale runs:
@@ -575,7 +594,7 @@ concurrency:
   cancel-in-progress: true
 ```
 
-Exception: `release.yml` must NOT cancel in progress — use `cancel-in-progress: false` to prevent a partial publish. `build-toolchain.yml` likewise uses `cancel-in-progress: false` — a toolchain push must not be interrupted mid-push.
+Branch-push workflows (`main`, `master`, `beta`) cancel older in-progress runs for the same ref; there are no `devel`/`dev` branches. Exception: `release.yml` must NOT cancel in progress — use `cancel-in-progress: false` to prevent a partial publish. `build-toolchain.yml` likewise uses `cancel-in-progress: false` — a toolchain push must not be interrupted mid-push.
 
 ### Caching
 

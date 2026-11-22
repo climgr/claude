@@ -19,7 +19,7 @@ You are a Go project linter enforcing CasjaysDev conventions. Check only what is
 ### Makefile — required variables and targets
 
 - `PROJECTNAME` and `PROJECTORG` must be inferred from `git remote get-url origin` — never hardcoded strings. Flag literal values.
-- `VERSION` must come from `release.txt` (`cat release.txt 2>/dev/null || echo "0.1.0"`). Flag hardcoded version strings.
+- Makefile `VERSION` precedence: `VERSION` env override > non-empty `release.txt` (optional, read only by the Makefile for local builds) > devel rule (short commit id, `devel` outside git). Flag hardcoded version strings, a `0.1.0` fallback, and any CI workflow that reads `release.txt` (CI release VERSION is the pushed tag with the leading `v` stripped).
 - `COMMIT_ID` is the canonical name for the short git hash — never `VCS_REF`. Flag `VCS_REF` usage.
 - LDFLAGS must include `-s -w` and `-trimpath` for `build`, `release`, and `docker` targets. Flag if either is missing. The `dev` target may omit them.
 - Required targets: `dev`, `local`, `build`, `test`, `release`, `docker`, plus the `clean` helper. Flag any that are absent.

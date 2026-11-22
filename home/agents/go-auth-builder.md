@@ -147,7 +147,7 @@ CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires  ON admin_sessions(expires
 
 ```sql
 Unified `tokens` table (SERVER.md PART 11): one table for admin, user, org and agent
-tokens. In a remote DB the cluster name is `usr_tokens`. Timestamps stay unix
+tokens (an agent token is an `adm_`, `usr_` or `org_` token with scope `agent`; this builder never creates one, it only rejects them on non-agent routes). In a remote DB the cluster name is `usr_tokens`. Timestamps stay unix
 INTEGER like every other table in this file. Revoking a token deletes its row —
 there is no `revoked` column.
 
@@ -162,7 +162,9 @@ CREATE TABLE IF NOT EXISTS tokens (
     token_hash    TEXT NOT NULL,
     -- First 8 chars of the raw token, display only: "adm_a1b2"
     token_prefix  TEXT NOT NULL,
-    scope         TEXT NOT NULL DEFAULT 'global' CHECK(scope IN ('global','read-write','read')),
+    scope         TEXT NOT NULL DEFAULT 'global' CHECK(scope IN ('global','read-write','read','agent')),
+    -- agents.id, set only when scope = 'agent'
+    agent_id      TEXT,
     -- NULL = never expires
     expires_at    INTEGER,
     last_used_at  INTEGER,
@@ -444,7 +446,7 @@ func randomBase62(n int) (string, error) {
 
 // NewTokenRaw generates a raw token `{prefix}_{32 alphanumeric}` and its SHA-256 hash.
 // prefix is one of the TokenPrefix* values WITHOUT the trailing underscore (adm, usr,
-// org, adm_agt, usr_agt, org_agt). An empty prefix yields the bare 32-character value
+// org). An empty prefix yields the bare 32-character value
 // used for one-shot emailed link tokens (invites, resets, verification).
 // Store only the hash. Display the raw token once.
 func NewTokenRaw(prefix string) (raw, hash string, err error) {
@@ -580,7 +582,7 @@ var (
 // IsReservedName reports whether name is reserved: it equals a listed name, begins with
 // "." or "_", ends with a file extension, or is a privileged name followed by digits.
 func IsReservedName(name string) bool {
-    n := strings.ToLower(strings.TrimSpace(norm.NFKC.String(name)))
+    n := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(norm.NFKC.String(name))), "@")
     if n == "" {
         return false
     }
@@ -682,14 +684,11 @@ package model
 import "time"
 
 // Token prefixes WITHOUT the separator: NewTokenRaw joins them as `{prefix}_{32 alphanumeric}`.
-// Agent tokens carry the owner's prefix plus `_agt`.
+// Agent tokens reuse these prefixes with scope `agent`; there is no separate agent prefix.
 const (
     TokenPrefixAdmin      = "adm"
     TokenPrefixUser       = "usr"
     TokenPrefixOrg        = "org"
-    TokenPrefixAdminAgent = "adm_agt"
-    TokenPrefixUserAgent  = "usr_agt"
-    TokenPrefixOrgAgent   = "org_agt"
 )
 
 const (
@@ -4904,9 +4903,6 @@ func TestNewTokenRawFormat(t *testing.T) {
         {TokenPrefixAdmin, `^adm_[0-9A-Za-z]{32}$`},
         {TokenPrefixUser, `^usr_[0-9A-Za-z]{32}$`},
         {TokenPrefixOrg, `^org_[0-9A-Za-z]{32}$`},
-        {TokenPrefixAdminAgent, `^adm_agt_[0-9A-Za-z]{32}$`},
-        {TokenPrefixUserAgent, `^usr_agt_[0-9A-Za-z]{32}$`},
-        {TokenPrefixOrgAgent, `^org_agt_[0-9A-Za-z]{32}$`},
         {"", `^[0-9A-Za-z]{32}$`},
     }
     for _, tc := range tests {

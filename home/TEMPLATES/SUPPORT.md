@@ -80,7 +80,7 @@ This specification defines a complete support system designed to be integrated i
 **Principle**: System configuration happens through web interfaces; no code editing is required.
 - Admin configuration panel for system settings
 - Agent configuration panel for personal settings
-- The admin UI writes the owning config file; credentials are stored in `secrets.yml` (mode `0600`, encrypted at rest, never committed)
+- The admin UI writes the owning config file; credentials are stored in `secrets.yml` (mode `0600`, never committed)
 - All user-facing strings are translated; keys follow the `errors.*` / `notifications.*` pattern
 - All settings have sensible defaults
 - Configuration changes take effect immediately (no restart required)

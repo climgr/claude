@@ -33,10 +33,11 @@ Classify:
 | Situation | Path |
 |-----------|------|
 | No spec files at all | → **Bootstrap wizard** (Step 2A) |
-| Only `SPEC.md` | → **Migrate SPEC.md** (Step 2B) |
+| Only `SPEC.md` (no `AI.md`) and it holds mixed WHAT/HOW project content | → **Migrate SPEC.md** (Step 2B) |
+| `SPEC.md` next to `AI.md` | → `SPEC.md` is the project rule-override file (wins over `AI.md`, may be empty): never migrate, merge, edit or delete it, and never create it to work around a template rule; only a rule the project plan or the user put there belongs in it |
 | Only `CLAUDE.md` or `.claude/CLAUDE.md` used as spec | → **Migrate CLAUDE.md** (Step 2C) |
 | `AI.md` exists | → **Assess and reconcile** (Step 2D) |
-| Mix of the above | → Handle each in order: SPEC.md first, then CLAUDE.md, then check AI.md |
+| Mix of the above | → Handle each in order: a legacy SPEC.md (no AI.md) first, then CLAUDE.md, then check AI.md |
 
 Also check for language: `go.mod` → Go, `Cargo.toml` → Rust, `*.sh`/`bin/` → shell, `package.json` → Node, `*.py` → Python. Note it — it determines which template to use.
 
