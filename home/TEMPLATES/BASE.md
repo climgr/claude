@@ -490,6 +490,8 @@ Channels differ ONLY in context, never in steps:
 
 Never fork the pipeline logic per channel — one skeleton, parameterized by context.
 
+On GitLab the rolling `devel` release job needs `GITLAB_TOKEN`: NOT auto-set; a project access token with the `api` scope, added as a MASKED CI/CD variable, used to delete the previous `devel` release and tag through the Releases API.
+
 There is no `devel` or `dev` branch: devel builds come from `main`/`master` only. A pull request runs CI only and never publishes an image or a release; merging is a push to the target branch and triggers that branch's workflows. A stable release is a tag push, never a merge, and release builds use the pushed tag.
 
 Every workflow (CI and every release channel) must also support an on-demand manual run in addition to its normal trigger, so it can be re-run without a dummy commit — `workflow_dispatch` on GitHub/Gitea/Forgejo; GitLab and Jenkins pipelines are already manually runnable from their own UI with no extra config.

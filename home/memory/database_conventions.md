@@ -48,7 +48,7 @@ func EnsureSchema(db *sql.DB) error {
 | **Never destructive** | Never `DROP COLUMN`, `DROP TABLE`, or `DELETE` in schema updates |
 | **Add only** | Add columns, add tables, add indexes |
 | **Defaults required** | New columns must have `DEFAULT` or be `NULL`-able |
-| **No renames** | Add new column, migrate data in application code, leave old column — never drop it |
+| **No renames** | Applies to a project's own columns: add new column, migrate data in application code, leave old column — never drop it. Exception: a column the template renames to its canonical name (scheduler `task_id`→`id`, `task_name`→`name`, `ran_at`→`started_at`) is upgraded in place by a guarded, idempotent `ALTER TABLE ... RENAME COLUMN old TO new`, run only when the column list shows the old name and not the new one (`PRAGMA table_info` on SQLite/libSQL, `information_schema.columns` elsewhere; SQL Server uses `sp_rename`); data is kept, nothing is dropped, and a column missing afterward is added with plain `ADD COLUMN` |
 | **Comment the version** | Each schema update entry notes the version that introduced it |
 
 ### Cross-database "column already exists" handling
@@ -220,6 +220,7 @@ The database and cache each accept ONE full URL: `server.database.url` and `serv
 - A URL that carries a credential (userinfo, or a `password`, `pwd`, `token` or `authToken` query value) is saved to `secrets.yml`; a URL without one stays in `server.yml`
 - Logs and output show only the redacted form (`scheme://user:********@host:port/name`)
 - A rejected URL never falls back to another database
+- The libSQL driver is `github.com/tursodatabase/libsql-client-go` (remote, pure Go, `CGO_ENABLED=0`) in Go projects; it is deprecated upstream but stays required, and `go-libsql` (CGO, four platforms only) is forbidden
 
 ---
 
