@@ -340,6 +340,11 @@
             "type": "command",
             "command": "$HOME/.claude/hooks/validate-workflows.sh",
             "timeout": 120
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/spec-guard.sh",
+            "timeout": 10
           }
         ]
       },

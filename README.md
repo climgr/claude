@@ -159,7 +159,7 @@ Hook scripts in `home/hooks/` run synchronously before or after a matching tool 
 | `no-forbidden-files.sh` | PreToolUse Write+Edit | Confirms before writing normally-forbidden files |
 | `no-todo-comments.sh` | PreToolUse Write+Edit | Blocks `TODO`/`FIXME`/`HACK` markers and commented-out code |
 | `comment-placement-guard.sh` | PreToolUse Write+Edit | Blocks comments in JSON and inline trailing comments in source files |
-| `spec-guard.sh` | PreToolUse Write+Edit | Blocks Edit/Write on project files until AI.md/SPEC.md was read this session; a project with only CLAUDE.md/AGENTS.md is ungoverned; `AGENTS.md` is exempt; user-directed bypass via `SPEC_GUARD_ALLOW=1` or a `.no_spec_guard` file |
+| `spec-guard.sh` | PreToolUse Write+Edit | Blocks Edit/Write on project files until AI.md/SPEC.md was read this session; a project with only CLAUDE.md/AGENTS.md is ungoverned; `AGENTS.md` is exempt; when the user tells Claude to bypass it, Claude runs `SPEC_GUARD_ALLOW=1 true` (also registered on PreToolUse Bash) to record the session marker |
 | `spec-guard-mark.sh` | PostToolUse Read | Records that AI.md/SPEC.md was read this session |
 | `trailing-newline-guard.sh` | PostToolUse Write+Edit | Checks the file ends with exactly one trailing newline |
 

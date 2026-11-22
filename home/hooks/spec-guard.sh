@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202611220001-git
+##@Version           :  202611220002-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,12 +10,12 @@
 # @@Created          :  Monday, July 20, 2026 00:00 EDT
 # @@File             :  spec-guard.sh
 # @@Description      :  PreToolUse hook: block Edit/Write on project files until AI.md/SPEC.md was read this session
-# @@Changelog        :  Exempt AGENTS.md; a project with only CLAUDE.md or AGENTS.md is ungoverned (no broken-bootstrap block); add the user-directed SPEC_GUARD_ALLOW=1 and .no_spec_guard bypass. Wrapped two long BLOCKED message strings onto multiple lines to fix line-length violations.
+# @@Changelog        :  Exempt AGENTS.md; a project with only CLAUDE.md or AGENTS.md is ungoverned (no broken-bootstrap block); user-directed bypass: a no-op Bash command prefixed SPEC_GUARD_ALLOW=1 records the session marker (also registered on PreToolUse Bash). Wrapped two long BLOCKED message strings onto multiple lines to fix line-length violations.
 # @@TODO             :
-# @@Other            :  Gates repos with AI.md/SPEC.md; exempt: meta/spec, AGENTS.md, README/LICENSE, COMMIT_MESS, env, .no_push; bypass: SPEC_GUARD_ALLOW=1 env or a .no_spec_guard file, user-directed only.
+# @@Other            :  Gates repos with AI.md/SPEC.md; exempt: meta/spec, AGENTS.md, README/LICENSE, COMMIT_MESS, env, .no_push; bypass: user-directed SPEC_GUARD_ALLOW=1 Bash prefix only.
 # @@Resource         :  ~/.claude/memory/project_conventions.md
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202611220001-git"
+VERSION="202611220002-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 
 set -euo pipefail
@@ -35,10 +35,44 @@ if ! printf '%s' "$SPEC_GUARD_INPUT" | jq -e 'type == "object"' >/dev/null 2>&1;
   exit 0
 fi
 
-SPEC_GUARD_FILE_PATH=$(printf '%s' "$SPEC_GUARD_INPUT" | jq -r 'try (.tool_input.file_path) catch "" // ""')
+SPEC_GUARD_TOOL_NAME=$(printf '%s' "$SPEC_GUARD_INPUT" | jq -r 'try (.tool_name) catch "" // ""')
 SPEC_GUARD_SESSION_ID=$(printf '%s' "$SPEC_GUARD_INPUT" | jq -r '.session_id // ""')
-[ -z "$SPEC_GUARD_FILE_PATH" ] && exit 0
 [ -z "$SPEC_GUARD_SESSION_ID" ] && exit 0
+
+# User-directed bypass. When the user explicitly tells Claude to bypass the spec
+# guard, Claude runs a no-op Bash command prefixed with SPEC_GUARD_ALLOW=1, for
+# example `SPEC_GUARD_ALLOW=1 true` or `SPEC_GUARD_ALLOW=1 true /abs/project`.
+# This hook then records the same session marker a Read of AI.md would, for the
+# cwd project and for every absolute directory named after the prefix. Claude
+# never uses the prefix on its own initiative.
+if [ "$SPEC_GUARD_TOOL_NAME" = "Bash" ]; then
+  SPEC_GUARD_COMMAND=$(printf '%s' "$SPEC_GUARD_INPUT" | jq -r 'try (.tool_input.command) catch "" // ""')
+  case "$SPEC_GUARD_COMMAND" in
+    "SPEC_GUARD_ALLOW=1 "*) ;;
+    *) exit 0 ;;
+  esac
+  SPEC_GUARD_CWD=$(printf '%s' "$SPEC_GUARD_INPUT" | jq -r 'try (.cwd) catch "" // ""')
+  read -r -a SPEC_GUARD_WORDS <<<"$SPEC_GUARD_COMMAND"
+  SPEC_GUARD_DIRS=("$SPEC_GUARD_CWD")
+  for SPEC_GUARD_WORD in "${SPEC_GUARD_WORDS[@]:1}"; do
+    case "$SPEC_GUARD_WORD" in
+      /*) [ -d "$SPEC_GUARD_WORD" ] && SPEC_GUARD_DIRS+=("$SPEC_GUARD_WORD") ;;
+    esac
+  done
+  SPEC_GUARD_BYPASS_DIR="${TMPDIR:-/tmp}/claude-hooks/spec-guard/${SPEC_GUARD_SESSION_ID}"
+  mkdir -p "$SPEC_GUARD_BYPASS_DIR"
+  chmod 700 "${TMPDIR:-/tmp}/claude-hooks/spec-guard" "$SPEC_GUARD_BYPASS_DIR" 2>/dev/null || true
+  for SPEC_GUARD_DIR in "${SPEC_GUARD_DIRS[@]}"; do
+    [ -n "$SPEC_GUARD_DIR" ] || continue
+    SPEC_GUARD_BYPASS_PROJECT=$(git -C "$SPEC_GUARD_DIR" rev-parse --show-toplevel 2>/dev/null) || continue
+    SPEC_GUARD_BYPASS_PROJECT=$(realpath -- "$SPEC_GUARD_BYPASS_PROJECT" 2>/dev/null) || continue
+    grep -qxF -- "$SPEC_GUARD_BYPASS_PROJECT" "$SPEC_GUARD_BYPASS_DIR/read" 2>/dev/null || printf '%s\n' "$SPEC_GUARD_BYPASS_PROJECT" >>"$SPEC_GUARD_BYPASS_DIR/read"
+  done
+  exit 0
+fi
+
+SPEC_GUARD_FILE_PATH=$(printf '%s' "$SPEC_GUARD_INPUT" | jq -r 'try (.tool_input.file_path) catch "" // ""')
+[ -z "$SPEC_GUARD_FILE_PATH" ] && exit 0
 
 # Exempt meta/spec files — these are pre-approved to edit without having read AI.md first
 # (editing AI.md itself, or IDEA.md/SPEC.md/TODO/PLAN, is not "implementing against the spec")
@@ -53,13 +87,6 @@ case "${SPEC_GUARD_FILE_PATH##*/}" in
 esac
 
 SPEC_GUARD_PROJECT=$(git -C "${SPEC_GUARD_FILE_PATH%/*}" rev-parse --show-toplevel 2>/dev/null) || exit 0
-
-# User-directed bypass. Edit/Write carry no command to prefix, so the override is
-# either SPEC_GUARD_ALLOW=1 in the session environment (for example the env block
-# of settings.local.json) or a .no_spec_guard file at the project root. Only the
-# user sets these, never Claude on its own initiative.
-[ "${SPEC_GUARD_ALLOW:-}" = "1" ] && exit 0
-[ -f "$SPEC_GUARD_PROJECT/.no_spec_guard" ] && exit 0
 
 # Existence precedence: AI.md (THE HOW, primary spec) > SPEC.md (project-rule
 # overrides; gates on its own if AI.md is absent too). A project with neither

@@ -182,7 +182,7 @@ Wrong order:   1, 2, 3, a, b, c   (2 runs before its prerequisites)
 
 **Existence precedence in the gate:** `AI.md` (THE HOW, primary spec) > `SPEC.md` (rule overrides; gates on its own if `AI.md` is absent too). A project with neither is ungoverned and never gated — including a project that only has a `CLAUDE.md` or `AGENTS.md`, since not every project carries a spec.
 
-**User-directed bypass:** Edit/Write carry no command to prefix, so `spec-guard.sh` is bypassed with `SPEC_GUARD_ALLOW=1` in the session environment (for example the `env` block of `settings.local.json`) or a `.no_spec_guard` file at the project root. Only the user sets either one; Claude never creates the file or sets the variable on its own initiative.
+**User-directed bypass:** when the user explicitly tells Claude to bypass the spec guard, Claude runs a no-op Bash command with the `SPEC_GUARD_ALLOW=1` prefix as the first word — `SPEC_GUARD_ALLOW=1 true` for the cwd project, or `SPEC_GUARD_ALLOW=1 true /abs/project` for another repo. `spec-guard.sh` (also registered on PreToolUse Bash) records the same session marker a Read of `AI.md` would, so edits to that project proceed for the rest of the session (until the next compaction re-arms the gate). The user's plain instruction is enough; Claude never uses the prefix on its own initiative.
 
 ## Language-specific implementation rules
 
