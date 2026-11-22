@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202609170001-git
+##@Version           :  202611220005-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, August 30, 2026 22:00 EDT
 # @@File             :  enforce-test-lint-gate.sh
 # @@Description      :  PreToolUse Bash hook: blocks the commit wrapper's `--dir <path> all` form unless the test and lint gates ran and passed this session for that project.
-# @@Changelog        :  Decode the stdin payload file as UTF-8 with replacement and fail open on any parse exception (not only JSONDecodeError) — a non-UTF-8 byte previously raised UnicodeDecodeError and surfaced as a hook error.
+# @@Changelog        :  A spec-collection project with no root-level .md to re-read (nothing to test or read) no longer blocks the commit. Decode the stdin payload file as UTF-8 with replacement and fail open on any parse exception (not only JSONDecodeError) — a non-UTF-8 byte previously raised UnicodeDecodeError and surfaced as a hook error.
 # @@TODO             :  None
 # @@Other            :  Pairs with test-lint-mark.sh's per-session markers; a project-type heuristic picks the test path (manifest, script-collection re-read, or *.md fallback). TEST_LINT_GATE_OVERRIDE=1 <gitcommit ...> bypasses the gate for that one call — user-directed only, never Claude's own initiative.
 # @@Resource         :  CLAUDE.md - Commit Workflow, home/hooks/test-lint-mark.sh, home/hooks/spec-guard.sh
@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202609170001-git"
+VERSION="202611220005-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 set -euo pipefail
 
@@ -430,6 +430,26 @@ def is_spec_collection(root):
     return not has_shell_scripts(root)
 
 
+# Root-level .md files that spec-guard-mark.sh never records as a spec read.
+NON_SPEC_MD = (
+    "LICENSE.md", "CLAUDE.md", "IDEA.md", "TODO.AI.md", "TODO.md", "PLAN.AI.md", "PLAN.md",
+)
+
+
+def has_readable_spec(root):
+    # A spec-collection project can only satisfy the spec re-read when it has a
+    # root-level .md that spec-guard-mark.sh records (AI.md, SPEC.md, a template
+    # *.md, or a lone README.md). With none, there is nothing to re-read and no
+    # test to run, so the gate has nothing to require and must not block.
+    try:
+        return any(
+            f.endswith(".md") and f not in NON_SPEC_MD and os.path.isfile(os.path.join(root, f))
+            for f in os.listdir(root)
+        )
+    except OSError:
+        return False
+
+
 blocked = []
 for target in targets:
     project = os.path.realpath(os.path.expanduser(target))
@@ -437,6 +457,8 @@ for target in targets:
         continue
 
     if is_spec_collection(project):
+        if not has_readable_spec(project):
+            continue
         if not marked(spec_guard_marker, project):
             blocked.append(
                 f"{project}: spec-collection project — AI.md/SPEC.md (or, for a template repo with "
