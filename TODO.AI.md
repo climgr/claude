@@ -215,11 +215,6 @@ out of scope for the task they were found during.
       against the templates; `android/` and `docker/` templates changed
       before 2026-10-06 and were only spot-checked.
 
-- [ ] `git branch -D` (force delete, needed for squash-merged branches)
-      is still blocked by `no-history-rewrite.sh`; decide whether to allow
-      it as `git -C {abs-dir} branch -D` like the other scoped deletes.
-      `git worktree remove`/`prune` and `git branch -d` were never blocked.
-
 - [ ] `home/memory/version_conventions.md` still says to keep Cargo.toml in
       sync with release.txt and that `--version` is never the word `devel`;
       release.txt is now optional and local non-git builds report `devel`.

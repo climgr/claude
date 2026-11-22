@@ -144,7 +144,7 @@ Hook scripts in `home/hooks/` run synchronously before or after a matching tool 
 | `no-subagent-gates.sh` | PreToolUse Bash | Blocks `make` and test runners (`go test`, `cargo test`, `pytest`, `npm test`, and the same through `docker`/`podman`/`incus`) when called from a subagent; the main session runs the gates once |
 | `limit-test-instances.sh` | PreToolUse Bash | Blocks creating a VM, Incus instance, or detached container when the project already has 4 running (`CLAUDE_MAX_TEST_INSTANCES`), and blocks launching them from a loop |
 | `no-force-push.sh` | PreToolUse Bash | Blocks all force-push forms everywhere, including inside the zone |
-| `no-history-rewrite.sh` | PreToolUse Bash | Blocks `git clean -f*`, `rebase`, `branch -D`, `tag -d`, `filter-repo`/`filter-branch`, `stash clear` everywhere; `push --delete` and `stash drop` only as `git -C {dir} ...` with an absolute `{dir}` |
+| `no-history-rewrite.sh` | PreToolUse Bash | Blocks `git clean -f*`, `rebase`, `tag -d`, `filter-repo`/`filter-branch`, `stash clear` everywhere; `push --delete`, `stash drop` and `branch -D` only as `git -C {dir} ...` with an absolute `{dir}` |
 | `no-destructive-bypass.sh` | PreToolUse Bash | Re-enforces the `git reset`/`dd`/`shred`/`mkfs*`/`wipefs` deny list against wrapper bypasses |
 | `bash-content-scan.sh` | PreToolUse Bash | Runs the secrets/AI-attribution scans against heredoc and `echo`/`printf` redirect content |
 | `enforce-gitcommit-shape.sh` | PreToolUse Bash | Blocks any `gitcommit` invocation that isn't exactly `--dir <abs-path> all`, `spec` or `push` |
