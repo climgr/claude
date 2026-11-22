@@ -23,6 +23,8 @@ You are a Rust project linter enforcing CasjaysDev conventions. Check only what 
 ### Makefile — required targets and format gate
 
 - Required targets: `dev`, `local`, `build`, `test`, `release`, `docker`, plus the `clean` helper. Flag any that are absent.
+- Makefile `VERSION` precedence: `VERSION` env override > non-empty `release.txt` (optional, read only by the Makefile for local builds) > devel rule (short commit id, `devel` outside git). Flag hardcoded version strings, a `0.1.0` fallback, and any CI workflow that reads `release.txt` (CI release VERSION is the pushed tag with the leading `v` stripped). `build.rs` must emit `VERSION` from the environment with `CARGO_PKG_VERSION` only as the fallback.
+- When the project ships a Dockerfile, the runtime image must install `bash`, `curl`, `tor`, `i2pd`, `tini`, `tzdata` and `ca-certificates`. Flag any that is missing.
 - The `test` target must run `cargo fmt --check` before `cargo test` — format failure is a build failure. Flag a `test` target that invokes `cargo test` without a preceding `cargo fmt --check`.
 
 ### Cargo.toml — release profile (NON-NEGOTIABLE)

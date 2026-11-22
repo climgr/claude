@@ -263,6 +263,19 @@ Security is first-class from day one — never bolted on after. It must also be 
 
 ---
 
+## Template hardening rules
+
+Cross-project rules the shape templates (go/rust `SERVER.md`) carry; details live there.
+
+- **Private paths** — `server.yml`, `secrets.yml`, `yaml.d/` and other private dirs/files are `0600` (files) / `0700` (dirs), enforced before the config is first read (shape template: PART 8, "Directory Validation Rules")
+- **Generated secrets** — written to `secrets.yml` atomically at `0600`; the audit log records the key name only; never synced across a cluster (shape template: "Secrets File")
+- **systemd unit** — `ProtectSystem=true`, never `full`/`strict`, so `/etc` stays writable for account setup and the privilege drop (shape template: systemd unit)
+- **Client IP** — resolve by walking the proxy chain from the right (nearest hop first); the leftmost entry is never trusted alone (shape template: client IP resolution)
+- **Contact/report forms** — HTML form posts reject a present `Origin` (or `Referer`) that is not this site; form tokens are single-use; captcha on every anonymous submit (shape template: "Contact form")
+- **Connection strings** — a TLS request auto-enables TLS and the certificate is not verified by default; verification is opt-in (shape template: "Connection Strings")
+
+---
+
 ## Protected Host Paths
 
 Beyond the Core OS paths floor (`~/.claude/CLAUDE.md`'s "Working Directory & Path Resolution": `/`, `/boot/**`, `/sys/**`, `/proc/**`, `/dev/**`, partition tables, bootloader config), the following also require user confirmation before any write/destructive Bash op — enforced by `protect-host.sh`:

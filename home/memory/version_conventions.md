@@ -18,7 +18,7 @@ CI derives the version from the channel (see CI/CD Version Precedence). `release
 - Only the Makefile reads it (local testing and debugging); CI/CD never reads it
 - Makefile: `VERSION ?= $(shell v=; [ -r release.txt ] && v=$$(tr -d '[:space:]' < release.txt); if [ -n "$$v" ]; then echo "$$v"; else git rev-parse --short=7 HEAD 2>/dev/null || echo devel; fi)`
 - `?=` lets an explicitly set `VERSION` env var override it: `make build VERSION=1.3.1-rc1` (user only; AI never sets `VERSION`)
-- If `release.txt` is empty or missing, the devel rule applies: the short commit id, or `devel` outside a git checkout. The reported version (`--version`) is SemVer for a release, `YYYYMMDDHHMMSS-beta` for a beta, and the short commit id for a devel build; never the word `devel`, and `dev` only when none of these apply
+- If `release.txt` is empty or missing, the devel rule applies: the short commit id, or `devel` outside a git checkout. The reported version (`--version`) is SemVer for a release, `YYYYMMDDHHMMSS-beta` for a beta, and the short commit id for a devel build inside a git checkout; the word `devel` appears only for a local build outside a git checkout, and `dev` only when none of these apply
 
 ---
 
@@ -63,15 +63,13 @@ var (
 ### Rust
 
 ```rust
-// version set from Cargo.toml [package] version field;
-// CommitID and BuildDate injected via build.rs reading env vars:
-// println!("cargo:rustc-env=COMMIT_ID={}", std::env::var("COMMIT_ID").unwrap_or_default());
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+// build.rs emits VERSION, BUILD_EPOCH, COMMIT_ID and OFFICIAL_SITE from the build environment:
+// println!("cargo:rustc-env=VERSION={}", std::env::var("VERSION").unwrap_or_else(|_| env!("CARGO_PKG_VERSION").into()));
+pub const VERSION: &str = env!("VERSION");
 pub const COMMIT_ID: &str = env!("COMMIT_ID");
-pub const BUILD_DATE: &str = env!("BUILD_DATE");
 ```
 
-Keep `Cargo.toml` version in sync with `release.txt` — they must match.
+`VERSION` comes from the build environment (the Makefile for local builds, the pushed tag in CI); the `Cargo.toml` `[package] version` is only the fallback when `VERSION` is unset, so it does not have to track `release.txt`.
 
 ### Node / TypeScript
 
@@ -131,7 +129,7 @@ CI detects a tagged release via `startsWith(github.ref, 'refs/tags/v')`.
 ## Bumping the Version
 
 1. Edit `release.txt` (if the project keeps one) — update to the new semver string
-2. For Rust: update `[package] version` in `Cargo.toml` to match
+2. For Rust: `[package] version` in `Cargo.toml` is only the fallback when `VERSION` is unset — bump it only when the project keeps it current
 3. Commit: `📦 Bump version to {version} 📦` — standalone commit, no other changes
 4. CI tags on release: `git tag v{version}` (triggered by the release workflow or manually for hotfixes)
 

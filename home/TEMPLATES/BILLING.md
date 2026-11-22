@@ -2462,7 +2462,6 @@ Provider configurations stored in:
   - `secrets.yml` (mode 0600, never committed)
   - Never in code
   - Written by the admin UI
-  - Billing API keys live in the single hashed `tokens` table
   - Audited on every change
   - Includes tooltip content
 ```

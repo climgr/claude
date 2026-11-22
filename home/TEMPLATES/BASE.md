@@ -345,6 +345,10 @@ On-disk paths use the stable pair `{internal_org}` and `{internal_name}` only â€
 | Cache | `~/.cache/{internal_org}/{internal_name}/` | `~/Library/Caches/{internal_name}/` | `%LocalAppData%\{internal_org}\{internal_name}\cache\` |
 | Logs | `~/.local/state/{internal_org}/{internal_name}/logs/` | `~/Library/Logs/{internal_name}/` | `%LocalAppData%\{internal_org}\{internal_name}\logs\` |
 
+The default listen address is `[::]` (dual-stack), falling back to `0.0.0.0` on IPv4-only hosts.
+
+systemd unit hardening rules (`ProtectSystem=true`, `/etc` stays writable) live in the shape template.
+
 Config canon: `server.yml` (node-local), `yaml.d/*.yml` drop-ins and `secrets.yml`, all `0600`, with `yaml.d/` itself `0700`; merge order is defaults, `server.yml`, `yaml.d` in byte-wise filename order, then `secrets.yml`, with CLI flags and environment variables above all. Private-path permissions are enforced before config is read.
 
 ---

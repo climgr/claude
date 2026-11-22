@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202609031612-git
+##@Version           :  202611220001-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,12 +10,12 @@
 # @@Created          :  Monday, July 20, 2026 00:00 EDT
 # @@File             :  spec-guard.sh
 # @@Description      :  PreToolUse hook: block Edit/Write on project files until AI.md/SPEC.md was read this session
-# @@Changelog        :  Wrapped two long BLOCKED message strings onto multiple lines to fix line-length violations.
+# @@Changelog        :  Exempt AGENTS.md; a project with only CLAUDE.md or AGENTS.md is ungoverned (no broken-bootstrap block); add the user-directed SPEC_GUARD_ALLOW=1 and .no_spec_guard bypass. Wrapped two long BLOCKED message strings onto multiple lines to fix line-length violations.
 # @@TODO             :
-# @@Other            :  Gates repos with AI.md/SPEC.md; bare CLAUDE.md is a blocked broken bootstrap; exempt: meta/spec, README/LICENSE, COMMIT_MESS, env, .no_push.
+# @@Other            :  Gates repos with AI.md/SPEC.md; exempt: meta/spec, AGENTS.md, README/LICENSE, COMMIT_MESS, env, .no_push; bypass: SPEC_GUARD_ALLOW=1 env or a .no_spec_guard file, user-directed only.
 # @@Resource         :  ~/.claude/memory/project_conventions.md
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202609031612-git"
+VERSION="202611220001-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 
 set -euo pipefail
@@ -46,7 +46,7 @@ case "$SPEC_GUARD_FILE_PATH" in
   */.git/* | */.claude/*) exit 0 ;;
 esac
 case "${SPEC_GUARD_FILE_PATH##*/}" in
-  AI.md | IDEA.md | SPEC.md | CLAUDE.md | TODO.AI.md | TODO.md | PLAN.AI.md | PLAN.md \
+  AI.md | IDEA.md | SPEC.md | CLAUDE.md | AGENTS.md | TODO.AI.md | TODO.md | PLAN.AI.md | PLAN.md \
     | COMMIT_MESS | .env | app.env | default.env | .no_push | README.md | LICENSE.md)
     exit 0
     ;;
@@ -54,22 +54,19 @@ esac
 
 SPEC_GUARD_PROJECT=$(git -C "${SPEC_GUARD_FILE_PATH%/*}" rev-parse --show-toplevel 2>/dev/null) || exit 0
 
-# Existence precedence: AI.md (THE HOW, primary spec) > CLAUDE.md (loader —
-# its presence without AI.md means a broken bootstrap, not "ungoverned") >
-# SPEC.md (project-rule overrides; gates on its own if AI.md is absent too)
+# User-directed bypass. Edit/Write carry no command to prefix, so the override is
+# either SPEC_GUARD_ALLOW=1 in the session environment (for example the env block
+# of settings.local.json) or a .no_spec_guard file at the project root. Only the
+# user sets these, never Claude on its own initiative.
+[ "${SPEC_GUARD_ALLOW:-}" = "1" ] && exit 0
+[ -f "$SPEC_GUARD_PROJECT/.no_spec_guard" ] && exit 0
+
+# Existence precedence: AI.md (THE HOW, primary spec) > SPEC.md (project-rule
+# overrides; gates on its own if AI.md is absent too). A project with neither
+# is ungoverned, including one that only has a CLAUDE.md or AGENTS.md.
 if [ -f "$SPEC_GUARD_PROJECT/AI.md" ]; then
   :
-elif [ -f "$SPEC_GUARD_PROJECT/CLAUDE.md" ] && [ ! -f "$SPEC_GUARD_PROJECT/SPEC.md" ]; then
-  SPEC_GUARD_MSG="BLOCKED: Spec guard — this project has a CLAUDE.md loader but no AI.md/SPEC.md for it to load.
-project_dir: ${SPEC_GUARD_PROJECT}
-The loader implies this project was meant to be spec-governed. Bootstrap
-AI.md first (copy the matching go/rust/android template, or use the
-bootstrap/spec-migrator agent), then retry this edit."
-  printf '%s\n' "$SPEC_GUARD_MSG"
-  printf '%s\n' "$SPEC_GUARD_MSG" >&2
-  exit 2
 elif [ ! -f "$SPEC_GUARD_PROJECT/SPEC.md" ]; then
-  # Neither AI.md, CLAUDE.md, nor SPEC.md — nothing to gate on
   exit 0
 fi
 
