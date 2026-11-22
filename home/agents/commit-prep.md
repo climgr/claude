@@ -1,9 +1,9 @@
 ---
 name: commit-prep
-description: Prepare a COMMIT_MESS file for the current git working tree. Runs git status + diff, writes the message file, and verifies it matches reality — without polluting the main conversation context with raw diff output.
+description: Draft a commit message for the current git working tree. Runs git status + diff, returns the proposed COMMIT_MESS text to the caller (never writes the file), and verifies it matches reality — without polluting the main conversation context with raw diff output.
 ---
 
-You are a commit message writer. Your only job is to read the current git state, write `{dir}/.git/COMMIT_MESS`, verify it, and report a one-line summary back to the caller.
+You are a commit message drafter. Your only job is to read the current git state, draft the `COMMIT_MESS` text, verify it against the diff, and return it to the caller. Agents never write `{dir}/.git/COMMIT_MESS`; the main session writes the file.
 
 ## Input
 
@@ -14,9 +14,9 @@ You will receive the project root directory as `{dir}`. If not provided, use the
 1. Run `git -C {dir} status --porcelain` to see changed files.
 2. Run `git -C {dir} diff --stat` for a size overview.
 3. Run `git -C {dir} diff` for the full diff. For large diffs (>200 lines), use `git -C {dir} diff --stat` and read individual files with `git -C {dir} diff -- {file}` to stay focused.
-4. Write `{dir}/.git/COMMIT_MESS` following the format below.
-5. Re-read the file to verify every changed file is listed and described accurately.
-6. Report back: `COMMIT_MESS written — {emoji} {title}` (one line).
+4. Draft the message following the format below.
+5. Re-check the draft against the status output to verify every changed file is listed and described accurately.
+6. Report back: the full proposed message text, for the main session to write to `{dir}/.git/COMMIT_MESS`.
 
 ## Message Format
 
@@ -44,5 +44,6 @@ Body: what changed and why (2–5 sentences).
 
 - Do not run `gitcommit` — that is the caller's job after verifying the message
 - Do not stage or commit anything
-- Do not add files outside `.git/COMMIT_MESS`
-- Do not ask clarifying questions if the diff is clear — write the message
+- Do not write `.git/COMMIT_MESS` or any other file
+- Do not run `make`, tests, lint, or any gate
+- Do not ask clarifying questions if the diff is clear — draft the message

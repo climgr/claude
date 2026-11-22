@@ -50,7 +50,7 @@ Agents are specialized sub-models invoked automatically based on what you ask, o
 | `go-server-to-api` | Audit a Go project after its AI.md has been replaced with a new spec (SERVER↔API), then generate a complete `TODO.AI.md` covering all migration tasks. |
 | `planner` | Design an implementation plan before writing code. Use when a task has genuinely ambiguous requirements or needs architectural tradeoffs evaluated — not simply because it touches many files. Returns a step-by-step plan and flags risks. Does not write code. |
 | `implement` | Read a project spec (`AI.md`/`SPEC.md`/`CLAUDE.md`) and implement everything it prescribes, in order, until nothing defined in the spec is left unbuilt. Ensures PART 0–6 scaffolding exists, then drives every feature PART to done, delegating auth/billing/notifications/support to their scoped builder agents. |
-| `commit-prep` | Prepare a `COMMIT_MESS` file for the current git working tree without polluting the main conversation with raw diff output. |
+| `commit-prep` | Draft the commit message text for the current git working tree and return it to the main session, which writes `COMMIT_MESS` itself; keeps raw diff output out of the main conversation. |
 
 ### 🔍 Code Quality
 
@@ -136,7 +136,7 @@ Hook scripts in `home/hooks/` run synchronously before or after a matching tool 
 | `drift-guard-read.sh` | PreToolUse Read+Bash | Blocks reading `~/.claude/` deployed copies when a `home/` source exists |
 | `no-read-gitcommit.sh` | PreToolUse Read+Grep+Bash | Blocks reading the `gitcommit` script itself |
 | `protect-host.sh` | PreToolUse Bash | Blocks destructive host commands (auth files, core binary dirs, wiping `/`/`$HOME`, `pkill`/`killall`, unscoped container sweeps) |
-| `block-host-toolchain.sh` | PreToolUse Bash | Blocks direct host toolchain invocations, suggests the Docker equivalent |
+| `block-host-toolchain.sh` | PreToolUse Bash | Blocks direct host toolchain invocations (including `govulncheck`, `cargo-clippy`/`clippy-driver`, `ktlint`/`detekt`), suggests the Docker equivalent |
 | `enforce-docker-rm.sh` | PreToolUse Bash | Blocks `docker run` without `--rm`/`--name` and unnamed `incus launch`/`init` |
 | `bound-shell-lifetime.sh` | PreToolUse Bash | Blocks unbounded shell lifetimes — unbounded poll loops, open-ended sleeps, `nohup`/`setsid`/`disown`, unbounded `tail -f`/`watch`, unmanaged `&` |
 | `zone-git-commit-push.sh` | PreToolUse Bash | Blocks raw `git commit` and raw `git push` everywhere, no zone exception for either — commit signing and push must always go through `gitcommit`; a zone repo that must never publish keeps a `.no_push` file instead. The one raw push allowed is `git -C {dir} push --delete <remote> <ref>` (absolute `{dir}`, never `--mirror`) |
@@ -153,9 +153,9 @@ Hook scripts in `home/hooks/` run synchronously before or after a matching tool 
 | `enforce-doc-sync.sh` | PreToolUse Bash | Blocks `gitcommit` unless `COMMIT_MESS` carries an explicit `IDEA.md`/`README.md` status line for whichever of those files exists at the target repo's root |
 | `test-lint-mark.sh` | PostToolUse Bash | Records that a test/lint command exited 0 this session |
 | `lint-agent-mark.sh` | SubagentStop | Records the lint gate satisfied when a lint subagent finishes clean |
-| `validate-workflows.sh` | PreToolUse Bash | Blocks staged workflow files unless third-party Actions are SHA-pinned and `act --list` passes |
+| `validate-workflows.sh` | PreToolUse Bash | Blocks staged workflow files unless third-party Actions are SHA-pinned (GitHub, Gitea and Forgejo), every `container:` job sets `options: "--user 0:0"`, the truffleHog job is a host-runner job with no `container:`/`needs:`, release/devel/beta/docker workflows have `workflow_dispatch`, and `act --list` passes |
 | `no-ai-attribution.sh` | PreToolUse Write+Edit | Blocks AI attribution phrases in file content |
-| `no-secrets.sh` | PreToolUse Write+Edit | Scans Write/Edit content for high-confidence secret patterns |
+| `no-secrets.sh` | PreToolUse Write+Edit | Scans Write/Edit content for high-confidence secret patterns, and blocks credentialed URLs (`scheme://user:pass@host`) in `.md` files — docs use `{user}:{password}` placeholders |
 | `no-forbidden-files.sh` | PreToolUse Write+Edit | Confirms before writing normally-forbidden files |
 | `no-todo-comments.sh` | PreToolUse Write+Edit | Blocks `TODO`/`FIXME`/`HACK` markers and commented-out code |
 | `comment-placement-guard.sh` | PreToolUse Write+Edit | Blocks comments in JSON and inline trailing comments in source files |

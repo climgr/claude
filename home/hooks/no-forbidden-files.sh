@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202609170001-git
+##@Version           :  202611220003-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,14 +10,14 @@
 # @@Created          :  Thursday, May 15, 2026 00:00 EDT
 # @@File             :  no-forbidden-files.sh
 # @@Description      :  PreToolUse hook: confirm before writing normally-forbidden files
-# @@Changelog        :  Decode the stdin payload file as UTF-8 with replacement and fail open on any parse exception (not only JSONDecodeError) — a non-UTF-8 byte previously raised UnicodeDecodeError and surfaced as a hook error. Parse with strict=False like every other hook so raw control characters inside content strings never abort the scan.
+# @@Changelog        :  Allowlist the template root files AGENTS.md, CLAUDE.md, CLAUDE.local.md, mkdocs.yml and .readthedocs.yaml. Earlier: Decode the stdin payload file as UTF-8 with replacement and fail open on any parse exception (not only JSONDecodeError) — a non-UTF-8 byte previously raised UnicodeDecodeError and surfaced as a hook error. Parse with strict=False like every other hook so raw control characters inside content strings never abort the scan.
 # @@TODO             :  Better docs
 # @@Other            :
 # @@Resource         :  home/memory/project_files.md
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202609170001-git"
+VERSION="202611220003-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 set -euo pipefail
 
@@ -255,6 +255,8 @@ ALWAYS_ALLOW_BASENAMES = {
     "AUTHORS", "AUTHORS.md", "CONTRIBUTORS", "CONTRIBUTORS.md",
     "NOTICE", "NOTICE.md", "NOTICE.txt",
     "LICENSE", "LICENSE.md", "LICENSE.txt", "COPYING",
+    # Loader files and documentation-site config (templates' allowed root files)
+    "AGENTS.md", "CLAUDE.md", "CLAUDE.local.md", "mkdocs.yml", ".readthedocs.yaml", ".readthedocs.yml",
     # Misc project root files
     "VERSION", "VERSION.txt", "version.txt",
     ".npmignore", ".npmrc", ".nvmrc", ".node-version",

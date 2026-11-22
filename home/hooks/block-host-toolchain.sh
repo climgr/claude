@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202609170001-git
+##@Version           :  202611220003-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Wednesday, May 14, 2026 00:00 EDT
 # @@File             :  block-host-toolchain.sh
 # @@Description      :  Claude Code PreToolUse hook — block direct host toolchain invocations and suggest the Docker equivalent
-# @@Changelog        :  __split_subcommands now reads the command over stdin instead of argv — a very long command line exceeded the kernel argv limit and the hook silently skipped enforcement.
+# @@Changelog        :  Also block govulncheck, cargo-clippy/clippy-driver, and ktlint/detekt on the host (Go/Rust/Android templates' No Host Toolchain rules). Earlier: __split_subcommands now reads the command over stdin instead of argv — a very long command line exceeded the kernel argv limit and the hook silently skipped enforcement.
 #                        docker run; gradle/gradlew and the Android SDK tools now dispatch to
 #                        casjaysdev/android:latest; suggested commands now honor the toolchain-image decision tree
 #                        (project-declared image, then docker/Dockerfile.build, then the language default); the
@@ -40,7 +40,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202609170001-git"
+VERSION="202611220003-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 set -uo pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -457,7 +457,7 @@ BLOCK_HOST_TOOLCHAIN_FIRST_BASE="${BLOCK_HOST_TOOLCHAIN_FIRST##*/}"
 case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
 
   # ── Go ────────────────────────────────────────────────────────────────────
-  go|gofmt|goimports|golangci-lint|gopls|godoc)
+  go|gofmt|goimports|golangci-lint|govulncheck|gopls|godoc)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  docker run --rm \\
     --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" \\
@@ -473,7 +473,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
     ;;
 
   # ── Rust ──────────────────────────────────────────────────────────────────
-  cargo|rustc|rustup|rustfmt|wasm-pack)
+  cargo|cargo-clippy|clippy-driver|rustc|rustup|rustfmt|wasm-pack)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  docker run --rm \\
     --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" \\
@@ -595,7 +595,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # tools require the Android toolchain image, not a bare JVM/Gradle image.
   # Source is mounted at /workspace, never over /opt/android-sdk (the image's
   # own SDK install path).
-  gradle|gradlew|adb|sdkmanager|apksigner|zipalign|d8|r8|aapt2)
+  gradle|gradlew|adb|sdkmanager|apksigner|zipalign|d8|r8|aapt2|ktlint|detekt)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  docker run --rm \\
     --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" \\

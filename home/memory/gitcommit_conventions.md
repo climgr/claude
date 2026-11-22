@@ -30,7 +30,9 @@ Never hardcode the path to `gitcommit` (e.g., `/usr/local/bin/gitcommit`).
 
 Emoji map: ✨ feat · 🐛 fix · 📝 docs · 🎨 style · ♻️ refactor · ⚡ perf · ✅ test · 🔧 chore · 🔒 security · 🗑️ remove · 🚀 deploy · 📦 deps
 
-Write `{dir}/.git/COMMIT_MESS` from `git status --porcelain` + `git diff --stat` output — every changed file described; never write from memory. Re-read `COMMIT_MESS` and compare against the diff before committing — rewrite if anything is missing or wrong. Mechanically enforced by `enforce-commit-mess-coverage.sh`: `gitcommit --dir {dir} all` is blocked while any changed/untracked file in the tree lacks a `- path: change` bullet (a `- dir/: ...` bullet covers files beneath it) — especially relevant after long-running tasks, where the tree accumulates far more files than recent context remembers.
+Write `{dir}/.git/COMMIT_MESS` from `git status --porcelain` + `git diff --stat` output — every changed or untracked file described; never write from memory. Re-read `COMMIT_MESS` and compare against the diff before committing — rewrite if anything is missing or wrong. Mechanically enforced by `enforce-commit-mess-coverage.sh`: `gitcommit --dir {dir} all` is blocked while any changed/untracked file in the tree lacks a `- path: change` bullet (a `- dir/: ...` bullet covers files beneath it) — especially relevant after long-running tasks, where the tree accumulates far more files than recent context remembers.
+
+No bare `@` handles and no AI attribution trailers (see above). `gitcommit --dir {dir} spec` commits only markdown spec files; never `-m`/`--message`.
 
 **Never invent a third-party role label** (`operator decision`, `owner decision`, `admin approved`, etc.) to describe who made a change. Claude Code runs as the user's own agent, not a separate operator/service — there is no third party. State the fact plainly instead: "removed at the user's request," "user-deleted, not a regression," or just describe the change with no attribution clause at all when the reason is self-evident from context.
 
@@ -57,11 +59,15 @@ Write `{dir}/.git/COMMIT_MESS` from `git status --porcelain` + `git diff --stat`
 
 ## Who Commits
 
-**Only the main session ever runs `gitcommit` or raw `git commit`/`git push`.** Agents and subagents — of any type, including forked agents — never commit and never push, under any circumstance, even inside the Local System Management Zone's raw-git exception. An agent's job ends at editing files and reporting back; the main session is the only place that reviews the full diff, writes `COMMIT_MESS`, and invokes the commit. This is a hard rule, mechanically enforced by `no-subagent-commit.sh` (blocks the attempt) — it is not a preference an agent can reason its way around.
+**Only the main session ever runs `gitcommit` or raw `git commit`/`git push`.** Agents and subagents — of any type, including forked agents — never commit and never push, under any circumstance, even inside the Local System Management Zone's raw-git exception. Agents also never write `COMMIT_MESS` and never run `make`, tests, lint, or any gate. An agent's job ends at editing its scoped files and reporting back; the main session is the only place that reviews the full diff, writes `COMMIT_MESS`, and invokes the commit. This is a hard rule, mechanically enforced by `no-subagent-commit.sh` (blocks the attempt) — it is not a preference an agent can reason its way around.
+
+## TODO.AI.md Completion
+
+(1) Implement a task and commit it normally, its item still in `TODO.AI.md`. (2) After that commit succeeds, delete the item. (3) The deletion is committed together with the next task. (4) The commit that deletes the LAST item uses the title `✅ all todo items have been completed ✅` and a body summarizing what was accomplished. The human-owned `TODO.md` is never emptied or truncated by AI — only individual items are marked done in place.
 
 ## Push Behavior
 
-Push is immediate and irreversible. To skip: `touch .no_push` (confirm with user first). If push fails offline: run `gitcommit --dir {dir} push` later — do NOT recreate `COMMIT_MESS`.
+Push is immediate and irreversible, and `gitcommit` creates the remote if missing. To skip: `touch .no_push` (confirm with user first). If push fails offline: run `gitcommit --dir {dir} push` later — do NOT recreate `COMMIT_MESS`.
 
 ## Pre-Commit Gates
 
@@ -73,6 +79,8 @@ Push is immediate and irreversible. To skip: `touch .no_push` (confirm with user
 5. **Doc-sync line** — for whichever of `IDEA.md`/`README.md` actually exists at `{dir}`'s root, add a status line: `- IDEA.md: updated (<what changed in Business Logic>)` or `- IDEA.md: N/A — no user-facing change` (same for `README.md`) — required by `enforce-doc-sync.sh`
 6. Re-read `COMMIT_MESS` and compare against the diff — rewrite if anything is missing or wrong
 7. Run `gitcommit --dir {dir} all`
+
+**Hook blocks:** a hook that blocks a commit (test/lint gate, doc-sync, `COMMIT_MESS` coverage) is reported to the user and never bypassed automatically; the override prefixes below are for a user who explicitly directs the bypass after confirming the check passed.
 
 **`TEST_LINT_GATE_OVERRIDE=1` escape hatch:** `enforce-test-lint-gate.sh` blocks `gitcommit` unless the test and lint gates ran and passed this session (via `test-lint-mark.sh`'s marker, or its `transcript_path` fallback). A confirmed upstream Claude Code bug (`anthropics/claude-code#6305`, open) means the marker sometimes never fires even for a genuinely passing run, and the fallback doesn't always see it either. If that happens: prefix the command, e.g. `TEST_LINT_GATE_OVERRIDE=1 gitcommit --dir {dir} all` — but only when the user's own message explicitly directs a bypass after confirming they already personally verified the test/lint run passed. Never set this on Claude's own initiative just because the gate blocked — "never auto-bypass a hook block" still applies; this is a user-authorized escape hatch, not a way around that rule.
 

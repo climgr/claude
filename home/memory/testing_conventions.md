@@ -46,7 +46,11 @@ When the user says any of the following, run Phase 2:
 | "run binary tests" | `./tests/run_tests.sh` |
 | "binary validation" / "run phase 2" | `./tests/run_tests.sh` |
 
-Prefer `./tests/incus.sh` when Incus is available (full OS, systemd). Fall back to `./tests/docker.sh` for Docker-only environments. `./tests/run_tests.sh` auto-detects.
+Prefer `./tests/incus.sh [systemd|openrc|all]` when Incus is available: `debian/trixie` covers systemd and `alpine/{latest_stable}` covers OpenRC, each exercising the service lifecycle, reboot, Tor and I2P. Fall back to `./tests/docker.sh` (`alpine:latest`) for Docker-only environments. `./tests/run_tests.sh` auto-detects. `./tests/e2e.sh` (Docker + Chromium) is the browser E2E beta test, with and without JS.
+
+**Test copies:** `tests/*.sh` may push the binary into a Docker/Incus test container and copy it under another name there (rename test); that copy lives only inside the container, is removed when the test ends, and `binaries/` is never modified. Copying or symlinking a binary anywhere on the host (`/tmp`, `/usr/local/bin`, `releases/` by hand) stays prohibited.
+
+**Auth in tests:** use the setup token to create the admin, then test login; auth is tested, never bypassed (`--debug` never bypasses it). Fixtures live only in `testdata/`, hold obviously fake values, and a credential-shaped string needed by a test is built at run time in test code.
 
 ---
 

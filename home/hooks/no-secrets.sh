@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202609170001-git
+##@Version           :  202611220003-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Thursday, May 15, 2026 00:00 EDT
 # @@File             :  no-secrets.sh
 # @@Description      :  Claude Code PreToolUse hook — scan Write/Edit content for high-confidence secret patterns and block if found
-# @@Changelog        :  Decode the stdin payload file as UTF-8 with replacement and fail open on any parse exception (not only JSONDecodeError) — a non-UTF-8 byte previously raised UnicodeDecodeError and surfaced as a hook error. Parse with strict=False like every other hook so raw control characters inside content strings never abort the scan.
+# @@Changelog        :  Block credential-shaped connection strings (scheme://user:password@host) in markdown docs; placeholders like {user}:{password} pass. Earlier: Decode the stdin payload file as UTF-8 with replacement and fail open on any parse exception (not only JSONDecodeError) — a non-UTF-8 byte previously raised UnicodeDecodeError and surfaced as a hook error. Parse with strict=False like every other hook so raw control characters inside content strings never abort the scan.
 # @@TODO             :  None
 # @@Other            :  Applies to Write (content) and Edit (new_string); .env.example/.sample templates and placeholder-text matches (changeme, your_key_here) are skipped.
 # @@Resource         :  ~/.claude/memory/sensitive_data.md
@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202609170001-git"
+VERSION="202611220003-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 set -uo pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -175,6 +175,16 @@ def redact(value):
     return value[:4] + "*" * (len(value) - 6) + value[-2:]
 
 findings = []
+
+# Documentation examples never carry a credential-shaped string; connection
+# strings use {user}:{password} placeholders (PART 10 Secret Scan Job). Only
+# markdown docs are checked — code and tests legitimately build such URLs.
+# Userinfo starting with $, {, <, % or ( is a variable/placeholder, not a literal.
+if filepath.lower().endswith(".md"):
+    for m in re.finditer(r"\b[A-Za-z][A-Za-z0-9+.\-]*://[^\s:/@${<%(\"'`]+:[^\s:/@${<%(\"'`]+@", content):
+        if PLACEHOLDER_RE.search(m.group(0)):
+            continue
+        findings.append(("Credentialed URL in docs (use {user}:{password})", redact(m.group())))
 
 for label, pattern in PATTERNS:
     for m in re.finditer(pattern, content):

@@ -11,6 +11,18 @@ You are an interactive auth scaffolder for Rust Axum HTTP server projects.
 
 ---
 
+## Template shape
+
+This builder implements the **SERVER** template shape (SERVER.md PART 11, 17, 34, 35): one unified `tokens` table (`owner_type` `admin|user|org`, scope `global|read-write|read|agent`), one shared `/server/auth/login`, separate `admins` and `users` tables, `admin_session` / `user_session` cookies. Check which shape the project is (its `AI.md` template name, else `IDEA.md`) before Step 2:
+
+- **SERVER** — all five features apply as written below.
+- **HYBRID** (HYBRID.md): there is no application-level multi-user system, no orgs/teams and no custom domains (HYBRID.md, "There is deliberately no application-level multi-user account system..."). Offer ONLY feature 1 (server admin, PART 28, disabled unless `IDEA.md` enables it); never build features 3, 4 or 5. Identity is a system user proven by socket peer credentials or a `sys_` token, and the `adm_` token maps to the main server admin account, so API tokens (feature 2) are the project's own `sys_`/`adm_` token system (HYBRID.md PART 8), not this builder's `tokens` table: skip feature 2.
+- **API** (API.md): no admin accounts, no user accounts, no orgs, no sessions. Do NOT run this builder; tell the user and stop. A project of this shape follows API.md instead: identity is an anonymous `owners` row plus `api_tokens` (`kind` `primary|linked`, `token_hash`, `token_prefix`, `token_last4`, AES-256-GCM `token_enc` so the owner can view the token again), owner tokens use the `own_` prefix and are managed at `/server/preferences/tokens`; the only `adm_` token is the operator token `server.token` in `secrets.yml`.
+
+Token rules that hold in every shape (SERVER.md "Token Catalogue"): a bearer credential is `{prefix}_{32 base62}`; ONE prefix per holder (`adm_` admin, `usr_` user, `org_` org, plus `own_` in API/HYBRID resource owners, `sys_` in HYBRID system users, `mtr_` metrics scraper); an agent token is NOT a separate format, it is an `adm_`, `usr_` or `org_` token with scope `agent`, valid only on the `agents/*` routes of its owner type and rejected everywhere else; the operator token `server.token` is an ordinary `adm_` admin token stored in `secrets.yml`, compared first in constant time and never written to the `tokens` table; presentation is `Authorization: Bearer` only; any MCP endpoint requires a token on every request (no anonymous MCP access) and a general MCP client gets a dedicated named `usr_` token with scope `read` or `read-write`, never an `adm_` token.
+
+---
+
 ## Step 1 — Discover the project
 
 Read only what the project itself contains. This agent's own embedded spec (below) is the sole source of what to build — never read an external spec/template file to decide that. `IDEA.md`/`AI.md`, if the project already has them, are read later only for metadata (project name, feature-flag reconciliation, PART-lock bookkeeping in Steps 16-17), never as a substitute for this agent's embedded instructions.
@@ -129,6 +141,8 @@ CREATE TABLE IF NOT EXISTS admins (
     -- NULL = TOTP not enrolled
     totp_secret     TEXT,
     totp_enabled    INTEGER NOT NULL DEFAULT 0,
+    -- JSON array of SHA-256 hashes of the 10 recovery keys (SERVER.md PART 34)
+    recovery_codes  TEXT NOT NULL DEFAULT '[]',
     created_at      INTEGER NOT NULL,
     updated_at      INTEGER NOT NULL,
     last_login      INTEGER,
@@ -481,6 +495,39 @@ pub fn new_totp_secret(issuer: &str, account_name: &str) -> Result<(String, Stri
     Ok((secret.to_string(), totp.get_url()))
 }
 
+// new_recovery_keys returns 10 recovery keys formatted `{8 hex}-{4 hex}` (SERVER.md PART 34)
+// plus the JSON array of their SHA-256 hashes to store. Keys are lowercased before hashing so
+// they validate case-insensitively; the raw keys are shown once and never stored.
+pub fn new_recovery_keys() -> Result<(Vec<String>, String), AuthError> {
+    let mut keys = Vec::with_capacity(10);
+    let mut hashes = Vec::with_capacity(10);
+    for _ in 0..10 {
+        let mut b = [0u8; 6];
+        OsRng.try_fill_bytes(&mut b).map_err(|e| AuthError::Rand(e.to_string()))?;
+        let h = hex::encode(b);
+        let key = format!("{}-{}", &h[..8], &h[8..]);
+        hashes.push(hash_token(&key));
+        keys.push(key);
+    }
+    let json = serde_json::to_string(&hashes).map_err(|e| AuthError::Rand(e.to_string()))?;
+    Ok((keys, json))
+}
+
+// consume_recovery_key checks key against the stored JSON hash array in constant time. On a
+// match it returns the array without that hash (single use).
+pub fn consume_recovery_key(hashes_json: &str, key: &str) -> Option<String> {
+    let mut hashes: Vec<String> = serde_json::from_str(hashes_json).ok()?;
+    let want = hash_token(key.trim().to_lowercase().as_str());
+    let mut idx = None;
+    for (i, h) in hashes.iter().enumerate() {
+        if h.as_bytes().ct_eq(want.as_bytes()).into() {
+            idx = Some(i);
+        }
+    }
+    hashes.remove(idx?);
+    serde_json::to_string(&hashes).ok()
+}
+
 // validate_totp checks code against secret using the standard 30-second step
 // and a ±1 step skew window to tolerate clock drift.
 pub fn validate_totp(secret: &str, code: &str) -> bool {
@@ -491,6 +538,23 @@ pub fn validate_totp(secret: &str, code: &str) -> bool {
         return false;
     };
     totp.check_current(code).unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{consume_recovery_key, new_recovery_keys};
+
+    #[test]
+    fn recovery_keys_are_single_use_and_case_insensitive() {
+        let (keys, json) = new_recovery_keys().expect("keys");
+        assert_eq!(keys.len(), 10);
+        assert!(keys[0].len() == 13 && keys[0].as_bytes()[8] == b'-');
+
+        let remaining = consume_recovery_key(&json, &keys[0].to_uppercase()).expect("first use");
+        assert!(consume_recovery_key(&remaining, &keys[0]).is_none());
+        assert!(consume_recovery_key(&remaining, &keys[1]).is_some());
+        assert!(consume_recovery_key(&json, "ffffffff-ffff").is_none());
+    }
 }
 ```
 
@@ -631,6 +695,9 @@ pub struct Admin {
     #[serde(skip_serializing)]
     pub totp_secret: Option<String>,
     pub totp_enabled: bool,
+    // JSON array of SHA-256 hex hashes of unused recovery keys
+    #[serde(skip_serializing)]
+    pub recovery_codes: String,
     pub created_at: i64,
     pub updated_at: i64,
     pub last_login: Option<i64>,
@@ -1234,10 +1301,28 @@ pub async fn require_token(
             bearer_challenge(&realm, None),
         );
     };
+    // `{prefix}_{32 chars}` with one prefix per holder: a malformed token is rejected before
+    // any database lookup.
+    let want_owner = match raw.split_once('_') {
+        Some(("adm", body)) if body.len() == 32 => "admin",
+        Some(("usr", body)) if body.len() == 32 => "user",
+        Some(("org", body)) if body.len() == 32 => "org",
+        _ => {
+            return with_challenge(
+                unauthorized("Invalid or expired token"),
+                bearer_challenge(&realm, Some("invalid_token")),
+            );
+        }
+    };
     let hash = hash_token(&raw);
     let now = chrono::Utc::now().timestamp();
     match state.db.get_token(&hash).await {
-        Ok(Some(token)) if !token.expired(now) => {
+        // An agent token (adm_/usr_/org_ with scope `agent`) is valid only on the agents/*
+        // routes, which this builder does not create; it is rejected everywhere here.
+        Ok(Some(token)) if token.owner_type == want_owner && !token.expired(now) && token.scope == "agent" => {
+            with_challenge(forbidden("Insufficient scope"), bearer_challenge("", Some("insufficient_scope")))
+        }
+        Ok(Some(token)) if token.owner_type == want_owner && !token.expired(now) => {
             let token_id = token.id;
             let db = state.db.clone();
             tokio::spawn(async move {
@@ -1633,13 +1718,13 @@ pub fn user_agent(headers: &HeaderMap) -> String {
 
 ### Feature 1 — Admin auth handler (`src/handlers/admin_auth.rs`)
 
-Routes: `GET|POST /server/auth/login` (rate limit key `server.auth.login`, 5/900s) and `GET|POST /server/auth/logout` are SHARED by admins and users (the `login` and `logout` handlers below serve both); API mirrors are `POST /api/{api_version}/server/auth/login` and `POST /api/{api_version}/server/auth/logout`. There is NO separate admin login route and no `admin_login.html`: `GET /server/{admin_path}` redirects an unauthenticated request to `/server/auth/login`. The admin-only routes stay under the admin panel: `GET /server/{admin_path}/auth/session` · `POST /server/{admin_path}/auth/password/change` · `POST /server/{admin_path}/auth/totp/enable` · `POST /server/{admin_path}/auth/totp/confirm` · `POST /server/{admin_path}/auth/totp/disable`.
+Routes: `GET|POST /server/auth/login` (rate limit key `server.auth.login`, 5/900s) and `GET|POST /server/auth/logout` are SHARED by admins and users (the `login` and `logout` handlers below serve both); API mirrors are `POST /api/{api_version}/server/auth/login` and `POST /api/{api_version}/server/auth/logout`. There is NO separate admin login route and no `admin_login.html`: `GET /server/{admin_path}` redirects an unauthenticated request to `/server/auth/login`. The admin self-service routes are exactly the SERVER.md "Admin - Profile" routes, `{base}` = `/server/{admin_path}/{admin_username}/profile` for the browser (HTML forms) and `/api/{api_version}/server/{admin_path}/{admin_username}/profile` for the JSON mirror: `POST {base}/password` (`auth.password_change`, 3/3600s) · `GET {base}/security` (MFA status: TOTP enabled, recovery keys remaining) · `POST {base}/security/totp/setup` (requires the current password; returns the secret and otpauth QR payload) · `POST {base}/security/totp/enable` (verifies the 6-digit code, enables TOTP, returns the 10 recovery keys ONCE; `auth.totp_verify`, 10/300s). There is no admin session-info route, no `/auth/*` admin route and no admin TOTP-disable route: the template defines none. `{admin_username}` MUST equal the signed-in admin's username (`admin_self`), otherwise 404. Passkeys (`.../security/passkey/*`) are not built by this builder.
 
-Rate limits applied at the router: `server.auth.login` (5/900s) on `login`, `auth.password_change` (3/3600s) on `change_password`, `auth.totp_verify` (10/300s) on `confirm_totp`.
+Rate limits applied at the router: `server.auth.login` (5/900s) on `login`, `auth.password_change` (3/3600s) on `change_password`, `auth.totp_verify` (10/300s) on `enable_totp`.
 
 ```rust
 use axum::{
-    extract::{ConnectInfo, Query, State},
+    extract::{ConnectInfo, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::Response,
     Extension, Json,
@@ -1656,8 +1741,8 @@ use crate::handlers::user_auth::start_user_session;
 use crate::middlewares::auth::AdminId;
 use crate::models::admin::{Admin, AdminSession};
 use crate::models::auth::{
-    check_password, dummy_password_hash, hash_password, new_session_id, new_totp_secret,
-    validate_totp,
+    check_password, consume_recovery_key, dummy_password_hash, hash_password, new_recovery_keys,
+    new_session_id, new_totp_secret, validate_totp,
 };
 use crate::models::user::{validate_password, User};
 use crate::state::AppState;
@@ -1667,14 +1752,19 @@ use crate::state::AppState;
 const INVALID_CREDENTIALS: &str = "Invalid credentials";
 
 // The admin session cookie is scoped to /server: it must reach the panel at
-// /server/{admin_path} AND the shared /server/auth/logout route.
+// /server/{admin_path} AND the shared /server/auth/logout route. SERVER.md lists the scope as
+// /server/{admin_path}/ but also requires the shared /server/auth/logout, which that path cannot
+// reach; /server is the narrowest path satisfying both (known template conflict).
 fn admin_cookie_path(_state: &AppState) -> String {
     "/server".to_string()
 }
 
 #[derive(Debug, Deserialize)]
 pub struct LoginRequest {
-    // Username or email. `username` is accepted as an alias for `login`.
+    // SERVER.md PART 34: `identifier` is a username, user id or email. `login` and `username`
+    // are accepted as aliases.
+    #[serde(default)]
+    pub identifier: String,
     #[serde(default)]
     pub login: String,
     #[serde(default)]
@@ -1684,6 +1774,10 @@ pub struct LoginRequest {
     // Only read for admin accounts with two-factor enabled.
     #[serde(default)]
     pub totp_code: String,
+    // Single-use recovery key, accepted instead of totp_code (one-step stand-in for the
+    // template's /server/auth/recovery/use partial-session flow).
+    #[serde(default)]
+    pub recovery_key: String,
 }
 
 // safe_redirect accepts only a same-site absolute path ("/x", never "//host" or "/\\host").
@@ -1707,7 +1801,11 @@ pub async fn login(
     headers: HeaderMap,
     Json(body): Json<LoginRequest>,
 ) -> Response {
-    let ident = if body.login.is_empty() { body.username.as_str() } else { body.login.as_str() };
+    let ident = [&body.identifier, &body.login, &body.username]
+        .into_iter()
+        .find(|v| !v.is_empty())
+        .map(String::as_str)
+        .unwrap_or("");
     if ident.is_empty() || body.password.is_empty() {
         return err(StatusCode::BAD_REQUEST, "INVALID_REQUEST", "Login and password are required");
     }
@@ -1737,7 +1835,7 @@ pub async fn login(
 
     if let Some(admin) = admin {
         if admin_ok && !admin.password_hash.is_empty() {
-            return login_admin(&state, &headers, peer, admin, &body.totp_code).await;
+            return login_admin(&state, &headers, peer, admin, &body.totp_code, &body.recovery_key).await;
         }
     }
     if let Some(user) = user {
@@ -1756,20 +1854,30 @@ async fn login_admin(
     peer: SocketAddr,
     admin: Admin,
     totp_code: &str,
+    recovery_key: &str,
 ) -> Response {
     if admin.totp_enabled {
         let Some(secret) = admin.totp_secret.as_deref() else {
             return err(StatusCode::UNAUTHORIZED, "INVALID_CREDENTIALS", INVALID_CREDENTIALS);
         };
-        if totp_code.is_empty() {
+        if totp_code.is_empty() && recovery_key.is_empty() {
             return err(
                 StatusCode::UNAUTHORIZED,
                 "TOTP_REQUIRED",
                 "Two-factor authentication code required",
             );
         }
-        if !validate_totp(secret, totp_code) {
-            return err(StatusCode::UNAUTHORIZED, "TOTP_INVALID", "Invalid authenticator code");
+        if !totp_code.is_empty() {
+            if !validate_totp(secret, totp_code) {
+                return err(StatusCode::UNAUTHORIZED, "TOTP_INVALID", "Invalid authenticator code");
+            }
+        } else {
+            let Some(remaining) = consume_recovery_key(&admin.recovery_codes, recovery_key) else {
+                return err(StatusCode::UNAUTHORIZED, "TOTP_INVALID", "Invalid recovery key");
+            };
+            if state.db.set_admin_recovery_codes(admin.id, &remaining).await.is_err() {
+                return server_error();
+            }
         }
     }
 
@@ -1848,32 +1956,18 @@ pub async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> R
     res
 }
 
-// GET /server/{admin_path}/auth/session
-pub async fn session(
-    State(state): State<Arc<AppState>>,
-    Extension(AdminId(admin_id)): Extension<AdminId>,
-    headers: HeaderMap,
-) -> Response {
-    let Some(id) = cookie_value(&headers, "admin_session") else {
-        return err(StatusCode::UNAUTHORIZED, "UNAUTHORIZED", "Authentication required");
-    };
-    let session = match state.db.get_admin_session(&id).await {
-        Ok(Some(session)) => session,
-        Ok(None) => {
-            return err(StatusCode::UNAUTHORIZED, "UNAUTHORIZED", "Session expired");
-        }
-        Err(_) => return server_error(),
-    };
+// admin_self loads the signed-in admin and enforces that the {admin_username} path segment is
+// that admin's own username (SERVER.md "Admin Self" routes). Anything else is 404.
+async fn admin_self(state: &AppState, admin_id: i64, username: &str) -> Result<Admin, Response> {
     let admin = match state.db.get_admin(admin_id).await {
         Ok(Some(admin)) => admin,
-        Ok(None) => return err(StatusCode::UNAUTHORIZED, "UNAUTHORIZED", "Session expired"),
-        Err(_) => return server_error(),
+        Ok(None) => return Err(err(StatusCode::UNAUTHORIZED, "UNAUTHORIZED", "Session expired")),
+        Err(_) => return Err(server_error()),
     };
-    ok(json!({
-        "admin_id": admin.id,
-        "username": admin.username,
-        "expires_at": session.expires_at,
-    }))
+    if !admin.username.eq_ignore_ascii_case(username) {
+        return Err(err(StatusCode::NOT_FOUND, "NOT_FOUND", "Not found"));
+    }
+    Ok(admin)
 }
 
 #[derive(Debug, Deserialize)]
@@ -1882,16 +1976,17 @@ pub struct ChangePasswordRequest {
     pub new_password: String,
 }
 
-// POST /server/{admin_path}/auth/password/change
+// POST /server/{admin_path}/{admin_username}/profile/password and its
+// /api/{api_version}/server/{admin_path}/{admin_username}/profile/password mirror.
 pub async fn change_password(
     State(state): State<Arc<AppState>>,
     Extension(AdminId(admin_id)): Extension<AdminId>,
+    Path(admin_username): Path<String>,
     Json(body): Json<ChangePasswordRequest>,
 ) -> Response {
-    let admin = match state.db.get_admin(admin_id).await {
-        Ok(Some(admin)) => admin,
-        Ok(None) => return err(StatusCode::UNAUTHORIZED, "UNAUTHORIZED", "Session expired"),
-        Err(_) => return server_error(),
+    let admin = match admin_self(&state, admin_id, &admin_username).await {
+        Ok(admin) => admin,
+        Err(res) => return res,
     };
     if !check_password(&admin.password_hash, &body.current_password) {
         return err(StatusCode::UNAUTHORIZED, "INVALID_CREDENTIALS", INVALID_CREDENTIALS);
@@ -1909,24 +2004,52 @@ pub async fn change_password(
     ok_empty()
 }
 
-// POST /server/{admin_path}/auth/totp/enable
-pub async fn enable_totp(
+// GET .../profile/security — the admin's MFA status.
+pub async fn security_status(
     State(state): State<Arc<AppState>>,
     Extension(AdminId(admin_id)): Extension<AdminId>,
+    Path(admin_username): Path<String>,
 ) -> Response {
-    let admin = match state.db.get_admin(admin_id).await {
-        Ok(Some(admin)) => admin,
-        Ok(None) => return err(StatusCode::UNAUTHORIZED, "UNAUTHORIZED", "Session expired"),
-        Err(_) => return server_error(),
+    let admin = match admin_self(&state, admin_id, &admin_username).await {
+        Ok(admin) => admin,
+        Err(res) => return res,
     };
+    let remaining = serde_json::from_str::<Vec<String>>(&admin.recovery_codes)
+        .map(|codes| codes.len())
+        .unwrap_or(0);
+    ok(json!({
+        "totp_enabled": admin.totp_enabled,
+        "recovery_keys_remaining": remaining,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TotpSetupRequest {
+    pub password: String,
+}
+
+// POST .../profile/security/totp/setup — requires the current password, stores the new secret
+// (totp_enabled stays 0 until enable_totp succeeds) and returns the secret plus the otpauth URL.
+pub async fn setup_totp(
+    State(state): State<Arc<AppState>>,
+    Extension(AdminId(admin_id)): Extension<AdminId>,
+    Path(admin_username): Path<String>,
+    Json(body): Json<TotpSetupRequest>,
+) -> Response {
+    let admin = match admin_self(&state, admin_id, &admin_username).await {
+        Ok(admin) => admin,
+        Err(res) => return res,
+    };
+    if !check_password(&admin.password_hash, &body.password) {
+        return err(StatusCode::UNAUTHORIZED, "INVALID_CREDENTIALS", INVALID_CREDENTIALS);
+    }
     let Ok((secret, otpauth_url)) = new_totp_secret(&state.cfg.server.name, &admin.username) else {
         return server_error();
     };
-    // Stored but not yet enabled — confirm_totp flips totp_enabled.
     if state.db.set_admin_totp_secret(admin.id, &secret).await.is_err() {
         return server_error();
     }
-    ok(json!({"otpauth_url": otpauth_url}))
+    ok(json!({"secret": secret, "otpauth_url": otpauth_url}))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1934,65 +2057,37 @@ pub struct TotpCodeRequest {
     pub code: String,
 }
 
-// POST /server/{admin_path}/auth/totp/confirm
-pub async fn confirm_totp(
+// POST .../profile/security/totp/enable — verifies the 6-digit code, enables TOTP and returns
+// the 10 recovery keys exactly once (only their hashes are stored).
+pub async fn enable_totp(
     State(state): State<Arc<AppState>>,
     Extension(AdminId(admin_id)): Extension<AdminId>,
+    Path(admin_username): Path<String>,
     Json(body): Json<TotpCodeRequest>,
 ) -> Response {
-    let admin = match state.db.get_admin(admin_id).await {
-        Ok(Some(admin)) => admin,
-        Ok(None) => return err(StatusCode::UNAUTHORIZED, "UNAUTHORIZED", "Session expired"),
-        Err(_) => return server_error(),
+    let admin = match admin_self(&state, admin_id, &admin_username).await {
+        Ok(admin) => admin,
+        Err(res) => return res,
     };
     let Some(secret) = admin.totp_secret.as_deref() else {
-        return err(StatusCode::BAD_REQUEST, "TOTP_NOT_PENDING", "Start enrollment first");
+        return err(StatusCode::BAD_REQUEST, "TOTP_NOT_PENDING", "Start setup first");
     };
     if !validate_totp(secret, &body.code) {
         return err(StatusCode::UNAUTHORIZED, "TOTP_INVALID", "Invalid authenticator code");
     }
-    if state.db.set_admin_totp_enabled(admin.id, true).await.is_err() {
+    let Ok((keys, hashes_json)) = new_recovery_keys() else {
+        return server_error();
+    };
+    if state.db.enable_admin_totp(admin.id, &hashes_json).await.is_err() {
         return server_error();
     }
-    ok_empty()
-}
-
-#[derive(Debug, Deserialize)]
-pub struct DisableTotpRequest {
-    pub password: String,
-    pub code: String,
-}
-
-// POST /server/{admin_path}/auth/totp/disable
-pub async fn disable_totp(
-    State(state): State<Arc<AppState>>,
-    Extension(AdminId(admin_id)): Extension<AdminId>,
-    Json(body): Json<DisableTotpRequest>,
-) -> Response {
-    let admin = match state.db.get_admin(admin_id).await {
-        Ok(Some(admin)) => admin,
-        Ok(None) => return err(StatusCode::UNAUTHORIZED, "UNAUTHORIZED", "Session expired"),
-        Err(_) => return server_error(),
-    };
-    if !check_password(&admin.password_hash, &body.password) {
-        return err(StatusCode::UNAUTHORIZED, "INVALID_CREDENTIALS", INVALID_CREDENTIALS);
-    }
-    let Some(secret) = admin.totp_secret.as_deref() else {
-        return err(StatusCode::BAD_REQUEST, "TOTP_NOT_ENABLED", "Two-factor is not enabled");
-    };
-    if !validate_totp(secret, &body.code) {
-        return err(StatusCode::UNAUTHORIZED, "TOTP_INVALID", "Invalid authenticator code");
-    }
-    if state.db.clear_admin_totp(admin.id).await.is_err() {
-        return server_error();
-    }
-    ok_empty()
+    ok(json!({"recovery_keys": keys}))
 }
 ```
 
 ### Feature 3 — User auth handler (`src/handlers/user_auth.rs`)
 
-Browser routes live under `/server/auth/*`; each has an API mirror under `/api/{api_version}/server/auth/*`. Login and logout are the shared `login` / `logout` handlers in the admin section above — there is no user-specific login route. Routes: `POST /server/auth/register` and `/api/{api_version}/server/auth/register` · `POST /server/{admin_path}/users/invite` · `POST /server/{admin_path}/users/create` · `POST /api/{api_version}/server/auth/invite/user/{code}` · `GET|PUT /api/{api_version}/users/settings` · `POST /api/{api_version}/users/security/password` · `POST /server/auth/password/forgot` and `/api/{api_version}/server/auth/password/forgot` · `POST /server/auth/password/reset` and `/api/{api_version}/server/auth/password/reset` · `GET /server/auth/verify/{code}` and `/api/{api_version}/server/auth/verify/{code}`.
+Browser routes live under `/server/auth/*`; each has an API mirror under `/api/{api_version}/server/auth/*`. Login and logout are the shared `login` / `logout` handlers in the admin section above — there is no user-specific login route. Routes: `POST /server/auth/register` and `/api/{api_version}/server/auth/register` · `POST /server/{admin_path}/users/invite` · `POST /server/{admin_path}/users/create` · `POST /api/{api_version}/server/auth/invite/user/{code}` · `GET|PATCH /api/{api_version}/users` (SERVER.md "Users": current user's profile) · `POST /api/{api_version}/users/security/password` · `POST /server/auth/password/forgot` and `/api/{api_version}/server/auth/password/forgot` · `POST /server/auth/password/reset` and `/api/{api_version}/server/auth/password/reset` · `GET /server/auth/verify/{code}` and `/api/{api_version}/server/auth/verify/{code}`.
 
 Rate limits applied at the router: `server.auth.register` (5/3600s), `auth.invite_create` (20/3600s), `server.auth.invite.user` (10/3600s), `auth.password_change` (3/3600s), `server.auth.password.forgot` (3/3600s), `server.auth.password.reset` (5/3600s), `server.auth.verify` (5/3600s). Login is rate limited as `server.auth.login` (see the admin section).
 
@@ -2384,7 +2479,7 @@ pub async fn accept_invite(
     res
 }
 
-// GET /api/{api_version}/users/settings
+// GET /api/{api_version}/users (the current user's profile)
 pub async fn me(
     State(state): State<Arc<AppState>>,
     Extension(UserId(user_id)): Extension<UserId>,
@@ -2410,7 +2505,7 @@ pub struct UpdateMeRequest {
     pub avatar_url: String,
 }
 
-// PUT /api/{api_version}/users/settings — profile fields only.
+// PATCH /api/{api_version}/users (browser form: POST /users) — profile fields only.
 pub async fn update_me(
     State(state): State<Arc<AppState>>,
     Extension(UserId(user_id)): Extension<UserId>,
@@ -2600,7 +2695,7 @@ pub async fn verify_email(
 
 ### Feature 2 — API token handler (`src/handlers/token.rs`)
 
-Routes (same handlers, two route groups): users — `GET|POST /api/{api_version}/users/tokens` and `DELETE /api/{api_version}/users/tokens/{id}` behind `require_user`; admins — `GET|POST /api/{api_version}/server/{admin_path}/security/tokens` and `DELETE /api/{api_version}/server/{admin_path}/security/tokens/{id}` behind `require_admin`. Whichever extension the middleware set decides the owner. All rows live in the unified `tokens` table; revoking deletes the row.
+Routes (same logic, three route groups, SERVER.md "Users" and "Orgs" API tables): users — `GET|POST /api/{api_version}/users/tokens` and `GET|DELETE /api/{api_version}/users/tokens/{token_id}` behind `require_user` (browser: `/users/tokens`); admins — `GET|POST /api/{api_version}/server/{admin_path}/security/tokens` and `GET|DELETE /api/{api_version}/server/{admin_path}/security/tokens/{token_id}` behind `require_admin`; orgs (built only with Feature 4) — `GET|POST /api/{api_version}/orgs/{slug}/tokens` and `GET|DELETE /api/{api_version}/orgs/{slug}/tokens/{token_id}` behind `require_user`, org owner or org admin only (browser: `/orgs/{slug}/tokens`). Org tokens use the `org_` prefix, are shown once at creation and reach that org only. For the user and admin routes, whichever extension the middleware set decides the owner. All rows live in the unified `tokens` table; revoking deletes the row.
 
 ```rust
 use axum::{
@@ -2613,11 +2708,13 @@ use serde::Deserialize;
 use serde_json::json;
 use std::sync::Arc;
 
+use crate::handlers::org::{can_manage, load_org};
 use crate::handlers::response::{created, err, ok, ok_empty, server_error};
 use crate::middlewares::auth::{AdminId, UserId};
 use crate::models::auth::new_token_raw;
 use crate::models::token::{
-    valid_token_scope, Token, TOKEN_PREFIX_ADMIN, TOKEN_PREFIX_USER, TOKEN_SCOPE_GLOBAL,
+    valid_token_scope, Token, TOKEN_PREFIX_ADMIN, TOKEN_PREFIX_ORG, TOKEN_PREFIX_USER,
+    TOKEN_SCOPE_GLOBAL,
 };
 use crate::state::AppState;
 
@@ -2637,16 +2734,19 @@ fn unauthenticated() -> Response {
     err(StatusCode::UNAUTHORIZED, "UNAUTHORIZED", "Authentication required")
 }
 
-// GET /api/{api_version}/users/tokens (and the admin twin)
-pub async fn list_tokens(
-    State(state): State<Arc<AppState>>,
-    admin: Option<Extension<AdminId>>,
-    user: Option<Extension<UserId>>,
-) -> Response {
-    let Some((owner_type, owner_id)) = owner(admin, user) else {
-        return unauthenticated();
-    };
-    match state.db.list_tokens(&owner_type, owner_id).await {
+// org_owner resolves an org token route's owner: the caller must be that org's owner or admin.
+// A non-member gets the same 404 as a nonexistent org (drop these wrappers without Feature 4).
+async fn org_owner(state: &AppState, slug: &str, user_id: i64) -> Result<(String, i64), Response> {
+    match load_org(state, &slug.to_lowercase(), user_id).await {
+        Ok(Some((org, role))) if can_manage(&role) => Ok(("org".to_string(), org.id)),
+        Ok(Some(_)) => Err(err(StatusCode::FORBIDDEN, "FORBIDDEN", "Insufficient permissions")),
+        Ok(None) => Err(err(StatusCode::NOT_FOUND, "ORG_NOT_FOUND", "Organization not found")),
+        Err(_) => Err(server_error()),
+    }
+}
+
+async fn list_for(state: &AppState, owner_type: &str, owner_id: i64) -> Response {
+    match state.db.list_tokens(owner_type, owner_id).await {
         // Token serializes with token_hash skipped.
         Ok(tokens) => match serde_json::to_value(&tokens) {
             Ok(value) => ok(json!({"tokens": value})),
@@ -2666,18 +2766,14 @@ pub struct CreateTokenRequest {
     pub expires_at: Option<i64>,
 }
 
-// POST /api/{api_version}/users/tokens (and the admin twin) — the raw token
-// `{prefix}{32 alphanumeric}` is returned exactly once; only its SHA-256 hash and the
-// 8-character display prefix are stored.
-pub async fn create_token(
-    State(state): State<Arc<AppState>>,
-    admin: Option<Extension<AdminId>>,
-    user: Option<Extension<UserId>>,
-    Json(body): Json<CreateTokenRequest>,
+// create_for returns the raw token `{prefix}{32 alphanumeric}` exactly once; only its SHA-256
+// hash and the 8-character display prefix are stored.
+async fn create_for(
+    state: &AppState,
+    owner_type: &str,
+    owner_id: i64,
+    body: CreateTokenRequest,
 ) -> Response {
-    let Some((owner_type, owner_id)) = owner(admin, user) else {
-        return unauthenticated();
-    };
     let name = body.name.trim().to_string();
     if name.is_empty() {
         return err(StatusCode::BAD_REQUEST, "INVALID_NAME", "Token name is required");
@@ -2690,7 +2786,11 @@ pub async fn create_token(
             "Scope must be global, read-write or read",
         );
     }
-    let prefix = if owner_type == "admin" { TOKEN_PREFIX_ADMIN } else { TOKEN_PREFIX_USER };
+    let prefix = match owner_type {
+        "admin" => TOKEN_PREFIX_ADMIN,
+        "org" => TOKEN_PREFIX_ORG,
+        _ => TOKEN_PREFIX_USER,
+    };
     let Ok((raw, token_hash)) = new_token_raw(prefix) else {
         return server_error();
     };
@@ -2704,7 +2804,7 @@ pub async fn create_token(
     let token_prefix: String = raw.chars().take(8).collect();
     let token = Token {
         id: 0,
-        owner_type: owner_type.clone(),
+        owner_type: owner_type.to_string(),
         owner_id,
         name: name.clone(),
         token_hash,
@@ -2736,35 +2836,147 @@ pub async fn create_token(
     }))
 }
 
-// DELETE /api/{api_version}/users/tokens/{id} (and the admin twin)
-pub async fn revoke_token(
-    State(state): State<Arc<AppState>>,
-    admin: Option<Extension<AdminId>>,
-    user: Option<Extension<UserId>>,
-    Path(id): Path<i64>,
-) -> Response {
-    let Some((owner_type, owner_id)) = owner(admin, user) else {
-        return unauthenticated();
-    };
-    let token = match state.db.get_token_by_id(id).await {
-        Ok(Some(token)) => token,
-        Ok(None) => return err(StatusCode::NOT_FOUND, "TOKEN_NOT_FOUND", "Token not found"),
-        Err(_) => return server_error(),
-    };
-    // Non-owners get the same answer as a nonexistent token.
-    if token.owner_type != owner_type || token.owner_id != owner_id {
-        return err(StatusCode::NOT_FOUND, "TOKEN_NOT_FOUND", "Token not found");
+// owned_token loads a token and checks it belongs to the owner pair; any miss is the same 404
+// so token ids cannot be probed across owners.
+async fn owned_token(
+    state: &AppState,
+    owner_type: &str,
+    owner_id: i64,
+    token_id: i64,
+) -> Result<Token, Response> {
+    match state.db.get_token_by_id(token_id).await {
+        Ok(Some(token)) if token.owner_type == owner_type && token.owner_id == owner_id => Ok(token),
+        Ok(_) => Err(err(StatusCode::NOT_FOUND, "TOKEN_NOT_FOUND", "Token not found")),
+        Err(_) => Err(server_error()),
     }
+}
+
+async fn get_for(state: &AppState, owner_type: &str, owner_id: i64, token_id: i64) -> Response {
+    match owned_token(state, owner_type, owner_id, token_id).await {
+        // Token serializes with token_hash skipped.
+        Ok(token) => match serde_json::to_value(&token) {
+            Ok(value) => ok(value),
+            Err(_) => server_error(),
+        },
+        Err(res) => res,
+    }
+}
+
+async fn revoke_for(state: &AppState, owner_type: &str, owner_id: i64, token_id: i64) -> Response {
+    let token = match owned_token(state, owner_type, owner_id, token_id).await {
+        Ok(token) => token,
+        Err(res) => return res,
+    };
     if state.db.delete_token(token.id).await.is_err() {
         return server_error();
     }
     ok_empty()
 }
+
+// GET /api/{api_version}/users/tokens (and the admin twin)
+pub async fn list_tokens(
+    State(state): State<Arc<AppState>>,
+    admin: Option<Extension<AdminId>>,
+    user: Option<Extension<UserId>>,
+) -> Response {
+    let Some((owner_type, owner_id)) = owner(admin, user) else {
+        return unauthenticated();
+    };
+    list_for(&state, &owner_type, owner_id).await
+}
+
+// POST /api/{api_version}/users/tokens (and the admin twin)
+pub async fn create_token(
+    State(state): State<Arc<AppState>>,
+    admin: Option<Extension<AdminId>>,
+    user: Option<Extension<UserId>>,
+    Json(body): Json<CreateTokenRequest>,
+) -> Response {
+    let Some((owner_type, owner_id)) = owner(admin, user) else {
+        return unauthenticated();
+    };
+    create_for(&state, &owner_type, owner_id, body).await
+}
+
+// GET /api/{api_version}/users/tokens/{token_id} (and the admin twin)
+pub async fn get_token(
+    State(state): State<Arc<AppState>>,
+    admin: Option<Extension<AdminId>>,
+    user: Option<Extension<UserId>>,
+    Path(token_id): Path<i64>,
+) -> Response {
+    let Some((owner_type, owner_id)) = owner(admin, user) else {
+        return unauthenticated();
+    };
+    get_for(&state, &owner_type, owner_id, token_id).await
+}
+
+// DELETE /api/{api_version}/users/tokens/{token_id} (and the admin twin)
+pub async fn revoke_token(
+    State(state): State<Arc<AppState>>,
+    admin: Option<Extension<AdminId>>,
+    user: Option<Extension<UserId>>,
+    Path(token_id): Path<i64>,
+) -> Response {
+    let Some((owner_type, owner_id)) = owner(admin, user) else {
+        return unauthenticated();
+    };
+    revoke_for(&state, &owner_type, owner_id, token_id).await
+}
+
+// GET /api/{api_version}/orgs/{slug}/tokens — org owner or org admin only.
+pub async fn list_org_tokens(
+    State(state): State<Arc<AppState>>,
+    Extension(UserId(user_id)): Extension<UserId>,
+    Path(slug): Path<String>,
+) -> Response {
+    match org_owner(&state, &slug, user_id).await {
+        Ok((owner_type, owner_id)) => list_for(&state, &owner_type, owner_id).await,
+        Err(res) => res,
+    }
+}
+
+// POST /api/{api_version}/orgs/{slug}/tokens — org owner or org admin only; `org_` prefix.
+pub async fn create_org_token(
+    State(state): State<Arc<AppState>>,
+    Extension(UserId(user_id)): Extension<UserId>,
+    Path(slug): Path<String>,
+    Json(body): Json<CreateTokenRequest>,
+) -> Response {
+    match org_owner(&state, &slug, user_id).await {
+        Ok((owner_type, owner_id)) => create_for(&state, &owner_type, owner_id, body).await,
+        Err(res) => res,
+    }
+}
+
+// GET /api/{api_version}/orgs/{slug}/tokens/{token_id}
+pub async fn get_org_token(
+    State(state): State<Arc<AppState>>,
+    Extension(UserId(user_id)): Extension<UserId>,
+    Path((slug, token_id)): Path<(String, i64)>,
+) -> Response {
+    match org_owner(&state, &slug, user_id).await {
+        Ok((owner_type, owner_id)) => get_for(&state, &owner_type, owner_id, token_id).await,
+        Err(res) => res,
+    }
+}
+
+// DELETE /api/{api_version}/orgs/{slug}/tokens/{token_id}
+pub async fn revoke_org_token(
+    State(state): State<Arc<AppState>>,
+    Extension(UserId(user_id)): Extension<UserId>,
+    Path((slug, token_id)): Path<(String, i64)>,
+) -> Response {
+    match org_owner(&state, &slug, user_id).await {
+        Ok((owner_type, owner_id)) => revoke_for(&state, &owner_type, owner_id, token_id).await,
+        Err(res) => res,
+    }
+}
 ```
 
 ### Feature 4 — Org handler (`src/handlers/org.rs`)
 
-Routes: `GET|POST /api/{api_version}/orgs` · `GET|PUT|DELETE /api/{api_version}/orgs/{slug}` · `GET|POST /api/{api_version}/orgs/{slug}/members` · `PUT|DELETE /api/{api_version}/orgs/{slug}/members/{username}` · `POST /api/{api_version}/orgs/{slug}/invites` · `GET /api/{api_version}/orgs/invites/{token}`. All are behind `require_user`.
+Routes: `GET|POST /api/{api_version}/orgs` · `GET|PATCH|DELETE /api/{api_version}/orgs/{slug}` · `GET|POST /api/{api_version}/orgs/{slug}/members` · `PATCH|DELETE /api/{api_version}/orgs/{slug}/members/{member_id}` (`member_id` is the member's user id) · `POST /api/{api_version}/orgs/{slug}/invites` · `GET /api/{api_version}/orgs/invites/{token}`. All are behind `require_user`.
 
 ```rust
 use axum::{
@@ -2796,13 +3008,13 @@ fn forbidden() -> Response {
     err(StatusCode::FORBIDDEN, "FORBIDDEN", "You do not have permission to do that")
 }
 
-fn can_manage(role: &str) -> bool {
+pub(crate) fn can_manage(role: &str) -> bool {
     role == "owner" || role == "admin"
 }
 
 // load_org fetches the org plus the caller's role in it. A non-member is
 // treated exactly like a nonexistent org so membership is not enumerable.
-async fn load_org(state: &AppState, slug: &str, user_id: i64) -> Result<Option<(Org, String)>, ()> {
+pub(crate) async fn load_org(state: &AppState, slug: &str, user_id: i64) -> Result<Option<(Org, String)>, ()> {
     let Some(org) = state.db.get_org_by_slug(slug).await.map_err(|_| ())? else {
         return Ok(None);
     };
@@ -2903,7 +3115,7 @@ pub struct UpdateOrgRequest {
     pub avatar_url: String,
 }
 
-// PUT /api/{api_version}/orgs/{slug} — owner or org-admin only.
+// PATCH /api/{api_version}/orgs/{slug} — owner or org-admin only.
 pub async fn update_org(
     State(state): State<Arc<AppState>>,
     Extension(UserId(user_id)): Extension<UserId>,
@@ -3023,11 +3235,11 @@ pub struct ChangeRoleRequest {
     pub role: String,
 }
 
-// PUT /api/{api_version}/orgs/{slug}/members/{username} — owner/org-admin only.
+// PATCH /api/{api_version}/orgs/{slug}/members/{member_id} — owner/org-admin only.
 pub async fn change_member_role(
     State(state): State<Arc<AppState>>,
     Extension(UserId(user_id)): Extension<UserId>,
-    Path((slug, username)): Path<(String, String)>,
+    Path((slug, member_id)): Path<(String, i64)>,
     Json(body): Json<ChangeRoleRequest>,
 ) -> Response {
     let (org, role) = match load_org(&state, &slug, user_id).await {
@@ -3041,7 +3253,7 @@ pub async fn change_member_role(
     if body.role != "admin" && body.role != "member" {
         return err(StatusCode::BAD_REQUEST, "INVALID_ROLE", "Role must be admin or member");
     }
-    let target = match state.db.get_user_by_username(&username).await {
+    let target = match state.db.get_user(member_id).await {
         Ok(Some(user)) => user,
         Ok(None) => return err(StatusCode::NOT_FOUND, "MEMBER_NOT_FOUND", "Member not found"),
         Err(_) => return server_error(),
@@ -3061,18 +3273,18 @@ pub async fn change_member_role(
     ok_empty()
 }
 
-// DELETE /api/{api_version}/orgs/{slug}/members/{username} — managers, or the member themselves.
+// DELETE /api/{api_version}/orgs/{slug}/members/{member_id} — managers, or the member themselves.
 pub async fn remove_member(
     State(state): State<Arc<AppState>>,
     Extension(UserId(user_id)): Extension<UserId>,
-    Path((slug, username)): Path<(String, String)>,
+    Path((slug, member_id)): Path<(String, i64)>,
 ) -> Response {
     let (org, role) = match load_org(&state, &slug, user_id).await {
         Ok(Some(pair)) => pair,
         Ok(None) => return not_found(),
         Err(_) => return server_error(),
     };
-    let target = match state.db.get_user_by_username(&username).await {
+    let target = match state.db.get_user(member_id).await {
         Ok(Some(user)) => user,
         Ok(None) => return err(StatusCode::NOT_FOUND, "MEMBER_NOT_FOUND", "Member not found"),
         Err(_) => return server_error(),
@@ -3435,8 +3647,10 @@ pub trait HandlerDb: Send + Sync {
     async fn update_admin_last_login(&self, id: i64, at: i64, ip: &str) -> sqlx::Result<()>;
     async fn update_admin_password(&self, id: i64, hash: &str, updated_at: i64) -> sqlx::Result<()>;
     async fn set_admin_totp_secret(&self, id: i64, secret: &str) -> sqlx::Result<()>;
-    async fn set_admin_totp_enabled(&self, id: i64, enabled: bool) -> sqlx::Result<()>;
-    async fn clear_admin_totp(&self, id: i64) -> sqlx::Result<()>;
+    // enable_admin_totp sets totp_enabled = 1 and stores the recovery-key hash array (JSON).
+    async fn enable_admin_totp(&self, id: i64, recovery_codes_json: &str) -> sqlx::Result<()>;
+    // set_admin_recovery_codes replaces the stored hash array (after one is used).
+    async fn set_admin_recovery_codes(&self, id: i64, recovery_codes_json: &str) -> sqlx::Result<()>;
 
     // Feature 3 — user accounts
     async fn get_user(&self, id: i64) -> sqlx::Result<Option<crate::models::user::User>>;
@@ -3728,9 +3942,9 @@ Rendered for both the admin-invite and direct-create private-mode flows (Step 4/
 
   <section class="profile-section">
     <h2>Edit profile</h2>
-    <form method="POST" action="/users/settings">
+    <form method="POST" action="/users">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <input type="hidden" name="_method" value="PUT">
+      <input type="hidden" name="_method" value="PATCH">
       <div class="field">
         <label for="display_name">Display name</label>
         <input id="display_name" type="text" name="display_name"
@@ -3889,7 +4103,7 @@ Register HTML-serving routes alongside the API routes. Each HTML route renders t
 | GET | `/server/auth/password/reset` | `auth/password_reset_confirm.html` (reads the emailed `?token=`) | none |
 | GET | `/server/auth/verify/{code}` | verifies the email, then redirects to `/users` | none |
 | GET | `/server/auth/invite/user/{code}` | `auth/invite_accept.html` | none |
-| GET | `/users/settings` | `auth/profile.html` | require_user |
+| GET | `/users` | `auth/profile.html` | require_user |
 | GET | `/orgs/new` | `auth/org_new.html` | require_user |
 | GET | `/domains/add` | `auth/domain_add.html` | require_user |
 
@@ -4124,8 +4338,8 @@ pub fn test_router(state: Arc<AppState>) -> Router {
             )),
         )
         .route(
-            "/server/administration/auth/session",
-            get(admin_auth::session)
+            "/server/administration/{admin_username}/profile/security",
+            get(admin_auth::security_status)
                 .layer(middleware::from_fn_with_state(state.clone(), require_admin)),
         )
         .route("/api/v1/server/auth/register", post(user_auth::register))
@@ -4136,7 +4350,7 @@ pub fn test_router(state: Arc<AppState>) -> Router {
                 .layer(middleware::from_fn_with_state(state.clone(), require_token)),
         )
         .route(
-            "/api/v1/users/settings",
+            "/api/v1/users",
             get(user_auth::me)
                 .layer(middleware::from_fn_with_state(state.clone(), require_user)),
         )
@@ -4246,16 +4460,16 @@ async fn admin_login_rejects_malformed_and_missing_fields() {
 }
 
 #[tokio::test]
-async fn admin_session_requires_authentication() {
+async fn admin_profile_requires_authentication() {
     let state = test_state().await;
     let app = test_router(state);
 
-    let no_cookie = call(&app, get_request("/server/administration/auth/session", None)).await;
+    let no_cookie = call(&app, get_request("/server/administration/root/profile/security", None)).await;
     assert_eq!(no_cookie.status, StatusCode::UNAUTHORIZED);
 
     let bogus = call(
         &app,
-        get_request("/server/administration/auth/session", Some("admin_session=deadbeef")),
+        get_request("/server/administration/root/profile/security", Some("admin_session=deadbeef")),
     )
     .await;
     assert_eq!(bogus.status, StatusCode::UNAUTHORIZED);
@@ -4403,6 +4617,27 @@ async fn token_route_accepts_only_the_bearer_form() {
         bad.headers.get("WWW-Authenticate").and_then(|v| v.to_str().ok()),
         Some("Bearer realm=\"{project_name}\", error=\"invalid_token\"")
     );
+}
+
+// An agent-scope token is rejected on every non-agent route, and a prefix must match its holder.
+#[tokio::test]
+async fn token_route_rejects_agent_scope_and_prefix_mismatch() {
+    let state = test_state().await;
+    seed_admin(&state, "root", "correct-horse").await;
+    let agent = seed_token(&state, "admin", 1, "agent").await;
+    // Owned by a user but carrying the `adm_` prefix: the prefix does not match the holder.
+    let wrong_holder = seed_token(&state, "user", 1, "global").await;
+    let app = test_router(state);
+
+    let a = call(&app, token_post(Some(format!("Bearer {agent}")), None)).await;
+    assert_eq!(a.status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        a.headers.get("WWW-Authenticate").and_then(|v| v.to_str().ok()),
+        Some("Bearer error=\"insufficient_scope\"")
+    );
+
+    let b = call(&app, token_post(Some(format!("Bearer {wrong_holder}")), None)).await;
+    assert_eq!(b.status, StatusCode::UNAUTHORIZED);
 }
 
 // token_post builds POST /api/v1/users/tokens with an optional Authorization value or one extra header.
@@ -4662,7 +4897,7 @@ async fn user_login_happy_path_and_me_route() {
     let cookie = login.set_cookie().expect("session cookie");
     let cookie_pair = cookie.split(';').next().expect("cookie pair").to_string();
 
-    let me = call(&app, get_request("/api/v1/users/settings", Some(&cookie_pair))).await;
+    let me = call(&app, get_request("/api/v1/users", Some(&cookie_pair))).await;
     assert_eq!(me.status, StatusCode::OK);
     assert_eq!(me.body["data"]["username"], json!("dave"));
     // The hash must never be serialized to a client.
@@ -4711,10 +4946,10 @@ async fn me_route_rejects_missing_and_expired_sessions() {
     let state = test_state().await;
     let app = test_router(state);
 
-    let missing = call(&app, get_request("/api/v1/users/settings", None)).await;
+    let missing = call(&app, get_request("/api/v1/users", None)).await;
     assert_eq!(missing.status, StatusCode::UNAUTHORIZED);
 
-    let stale = call(&app, get_request("/api/v1/users/settings", Some("user_session=deadbeef"))).await;
+    let stale = call(&app, get_request("/api/v1/users", Some("user_session=deadbeef"))).await;
     assert_eq!(stale.status, StatusCode::UNAUTHORIZED);
 }
 

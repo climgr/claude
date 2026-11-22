@@ -42,8 +42,11 @@ from scoped units of work, not from picking a cheaper model for the user.
 
 **Hard rule, no exceptions.** Every agent/subagent type, including forked
 agents, edits and reports back only; only the main session reviews the full
-diff, writes `COMMIT_MESS`, and runs `gitcommit`. Mechanically enforced by
-`no-subagent-commit.sh`; not a judgment call an agent can override.
+diff, writes `COMMIT_MESS`, and runs `gitcommit`. Agents never write
+`COMMIT_MESS` either; a message-drafting agent returns the proposed text to
+the main session. Mechanically enforced by `no-subagent-commit.sh`; not a
+judgment call an agent can override. A hook block hit by an agent is reported
+back to the main session, never bypassed.
 
 ## Agents Never Run Tests, Builds, or Gates
 

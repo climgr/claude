@@ -83,7 +83,7 @@ Key rules always in effect:
 ## Project Files & Naming
 - See `~/.claude/memory/project_conventions.md` for AI.md / IDEA.md / CLAUDE.md roles, placeholder system, and directory layout
 - See `~/.claude/memory/project_files.md` for README.md requirements, LICENSE.md naming, allowed root files, and what must never be created
-- **`TODO.AI.md` hygiene** — complete each item fully before removing; never clear while in progress. **`PLAN.AI.md` hygiene** — delete once work is fully committed
+- **`TODO.AI.md` hygiene** — complete each item fully before removing; never clear while in progress; delete an item only after its commit succeeds (last-item commit sequence: `gitcommit_conventions.md`). **`PLAN.AI.md` hygiene** — delete once work is fully committed
 - **No issue left only in conversation** — any flagged-but-not-fixed issue (found during an audit, a review, or incidentally while doing something else) must, before moving on to other work, either be fixed immediately or logged as a line item in `TODO.AI.md` (create it if missing). A commit message, a chat reply, or a summary is not a durable record — conversation context can be compacted or lost. This applies regardless of severity or how small the issue seems; the `audit` agent's >5-issues-to-`AUDIT.AI.md` threshold is a separate, additional rule for large batches, not an exemption from logging smaller ones here
 - **`TODO.AI.md` PART loading** — `grep -n "^# PART N" AI.md` to find the slice; read only that slice; never load the full spec file; cross-refs inside the slice: finish the slice first, then follow
 
@@ -192,7 +192,7 @@ Key rules always in effect:
 Full rules (smaller scoped units of work, model inheritance, no-subagent-commit, "no edits" ≠ enforcement, fork/subagent scope discipline): `~/.claude/memory/agent_usage_conventions.md`
 - **Prefer smaller, scoped units of work** — one file/finding/subtask per dispatch, batch large diffs instead of one sprawling change
 - **Model inheritance** — the user picks the model; agents inherit it. Never set `model:` in agent frontmatter, pass a per-spawn `model` override, or pin `model`/`fallbackModel` in settings unless the user asks
-- **Agents never commit — hard rule, no exceptions**, mechanically enforced by `no-subagent-commit.sh`
+- **Agents never commit or write `COMMIT_MESS` — hard rule, no exceptions**, mechanically enforced by `no-subagent-commit.sh`
 - **Agents never run tests, builds, or gates — hard rule**, mechanically enforced by `no-subagent-gates.sh`: no `make`, test runner, lint gate, or commit gate from a subagent. Self-Validation and the pre-commit gates are the main session's job, run once after the full diff is reviewed; a subagent edits its scoped files and reports back (partial work is never committed because only the main session commits)
 - A "no edits" instruction in a prompt is a request, not enforcement — an agent/fork keeps Edit/Write regardless of wording; use `explorer`/`Explore` for a mechanical guarantee
 - Fork/subagent scope is exactly what its prompt names — no self-directed coordination, no editing outside scope

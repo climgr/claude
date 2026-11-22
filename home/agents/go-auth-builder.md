@@ -11,6 +11,18 @@ You are an interactive auth scaffolder for Go HTTP server projects.
 
 ---
 
+## Template shape
+
+This builder implements the **SERVER** template shape (SERVER.md PART 11, 17, 34, 35): one unified `tokens` table (`owner_type` `admin|user|org`, scope `global|read-write|read|agent`), one shared `/server/auth/login`, separate `admins` and `users` tables, `admin_session` / `user_session` cookies. Check which shape the project is (its `AI.md` template name, else `IDEA.md`) before Step 2:
+
+- **SERVER** — all five features apply as written below.
+- **HYBRID** (HYBRID.md): there is no application-level multi-user system, no orgs/teams and no custom domains (HYBRID.md, "There is deliberately no application-level multi-user account system..."). Offer ONLY feature 1 (server admin, PART 28, disabled unless `IDEA.md` enables it); never build features 3, 4 or 5. Identity is a system user proven by socket peer credentials or a `sys_` token, and the `adm_` token maps to the main server admin account, so API tokens (feature 2) are the project's own `sys_`/`adm_` token system (HYBRID.md PART 8), not this builder's `tokens` table: skip feature 2.
+- **API** (API.md): no admin accounts, no user accounts, no orgs, no sessions. Do NOT run this builder; tell the user and stop. A project of this shape follows API.md instead: identity is an anonymous `owners` row plus `api_tokens` (`kind` `primary|linked`, `token_hash`, `token_prefix`, `token_last4`, AES-256-GCM `token_enc` so the owner can view the token again), owner tokens use the `own_` prefix and are managed at `/server/preferences/tokens`; the only `adm_` token is the operator token `server.token` in `secrets.yml`.
+
+Token rules that hold in every shape (SERVER.md "Token Catalogue"): a bearer credential is `{prefix}_{32 base62}`; ONE prefix per holder (`adm_` admin, `usr_` user, `org_` org, plus `own_` in API/HYBRID resource owners, `sys_` in HYBRID system users, `mtr_` metrics scraper); an agent token is NOT a separate format, it is an `adm_`, `usr_` or `org_` token with scope `agent`, valid only on the `agents/*` routes of its owner type and rejected everywhere else; the operator token `server.token` is an ordinary `adm_` admin token stored in `secrets.yml`, compared first in constant time and never written to the `tokens` table; presentation is `Authorization: Bearer` only; any MCP endpoint requires a token on every request (no anonymous MCP access) and a general MCP client gets a dedicated named `usr_` token with scope `read` or `read-write`, never an `adm_` token.
+
+---
+
 ## Step 1 — Discover the project
 
 Read only what the project itself contains. This agent's own embedded spec (below) is the sole source of what to build — never read an external spec/template file to decide that. `IDEA.md`/`AI.md`, if the project already has them, are read later only for metadata (project name, feature-flag reconciliation, PART-lock bookkeeping in Steps 16-17), never as a substitute for this agent's embedded instructions.
@@ -123,6 +135,8 @@ CREATE TABLE IF NOT EXISTS admins (
     -- NULL = TOTP not enrolled
     totp_secret     TEXT,
     totp_enabled    INTEGER NOT NULL DEFAULT 0,
+    -- JSON array of SHA-256 hashes of the 10 recovery keys (SERVER.md PART 34)
+    recovery_codes  TEXT NOT NULL DEFAULT '[]',
     created_at      INTEGER NOT NULL,
     updated_at      INTEGER NOT NULL,
     last_login      INTEGER,
@@ -145,7 +159,6 @@ CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires  ON admin_sessions(expires
 
 ### Tables for Feature 2 (API tokens)
 
-```sql
 Unified `tokens` table (SERVER.md PART 11): one table for admin, user, org and agent
 tokens (an agent token is an `adm_`, `usr_` or `org_` token with scope `agent`; this builder never creates one, it only rejects them on non-agent routes). In a remote DB the cluster name is `usr_tokens`. Timestamps stay unix
 INTEGER like every other table in this file. Revoking a token deletes its row —
@@ -345,6 +358,7 @@ import (
     "crypto/subtle"
     "encoding/base64"
     "encoding/hex"
+    "encoding/json"
     "fmt"
     "math/big"
     "strconv"
@@ -467,6 +481,53 @@ func NewTokenRaw(prefix string) (raw, hash string, err error) {
 func HashToken(raw string) string {
     sum := sha256.Sum256([]byte(raw))
     return hex.EncodeToString(sum[:])
+}
+
+// NewRecoveryKeys returns 10 recovery keys formatted `{8 hex}-{4 hex}` (SERVER.md PART 34)
+// plus the JSON array of their SHA-256 hashes to store. Keys are lowercased before hashing
+// so they validate case-insensitively; the raw keys are shown once and never stored.
+func NewRecoveryKeys() (keys []string, hashesJSON string, err error) {
+    hashes := make([]string, 0, 10)
+    for i := 0; i < 10; i++ {
+        b := make([]byte, 6)
+        if _, err := rand.Read(b); err != nil {
+            return nil, "", fmt.Errorf("new recovery key: %w", err)
+        }
+        h := hex.EncodeToString(b)
+        key := h[:8] + "-" + h[8:]
+        keys = append(keys, key)
+        hashes = append(hashes, HashToken(key))
+    }
+    out, err := json.Marshal(hashes)
+    if err != nil {
+        return nil, "", fmt.Errorf("new recovery key: %w", err)
+    }
+    return keys, string(out), nil
+}
+
+// ConsumeRecoveryKey checks key against the stored JSON hash array in constant time. On a
+// match it returns the array without that hash (single use) and true.
+func ConsumeRecoveryKey(hashesJSON, key string) (remainingJSON string, ok bool) {
+    var hashes []string
+    if err := json.Unmarshal([]byte(hashesJSON), &hashes); err != nil {
+        return hashesJSON, false
+    }
+    want := HashToken(strings.ToLower(strings.TrimSpace(key)))
+    idx := -1
+    for i, h := range hashes {
+        if subtle.ConstantTimeCompare([]byte(h), []byte(want)) == 1 {
+            idx = i
+        }
+    }
+    if idx < 0 {
+        return hashesJSON, false
+    }
+    hashes = append(hashes[:idx], hashes[idx+1:]...)
+    out, err := json.Marshal(hashes)
+    if err != nil {
+        return hashesJSON, false
+    }
+    return string(out), true
 }
 
 // ConstantTimeEq compares two hex strings in constant time.
@@ -630,6 +691,8 @@ type Admin struct {
     PasswordHash string `db:"password_hash"`
     TOTPSecret   string `db:"totp_secret"`
     TOTPEnabled  bool   `db:"totp_enabled"`
+    // JSON array of SHA-256 hex hashes of unused recovery keys
+    RecoveryCodes string `db:"recovery_codes"`
     CreatedAt    int64  `db:"created_at"`
     UpdatedAt    int64  `db:"updated_at"`
     LastLogin    *int64 `db:"last_login"`
@@ -1061,6 +1124,9 @@ func bearerChallenge(w http.ResponseWriter, realm, errCode string) {
     w.Header().Set("WWW-Authenticate", v)
 }
 
+// tokenPrefixOwner maps each prefix to the only owner type that may hold it.
+var tokenPrefixOwner = map[string]string{"adm": "admin", "usr": "user", "org": "org"}
+
 // RequireToken validates the Bearer token and sets the owner ID (admin, user or org),
 // token ID and scope in context. realm is {project_name}. A missing token is 401 with
 // `WWW-Authenticate: Bearer realm="{project_name}"`; an invalid or expired token adds
@@ -1075,12 +1141,28 @@ func RequireToken(db AuthDB, realm string) func(http.Handler) http.Handler {
                 writeJSON(w, 401, `{"ok":false,"error":"UNAUTHORIZED","message":"Authentication required"}`)
                 return
             }
+            // `{prefix}_{32 chars}` with one prefix per holder: a malformed token is rejected
+            // before any database lookup.
+            prefix, body, found := strings.Cut(raw, "_")
+            wantOwner, known := tokenPrefixOwner[prefix]
+            if !found || !known || len(body) != 32 {
+                bearerChallenge(w, realm, "invalid_token")
+                writeJSON(w, 401, `{"ok":false,"error":"UNAUTHORIZED","message":"Invalid or expired token"}`)
+                return
+            }
             sum := sha256.Sum256([]byte(raw))
             hash := hex.EncodeToString(sum[:])
             ownerType, ownerID, tokenID, scope, expiresAt, err := db.GetToken(r.Context(), hash)
-            if err != nil || (expiresAt != nil && time.Now().Unix() > *expiresAt) {
+            if err != nil || ownerType != wantOwner || (expiresAt != nil && time.Now().Unix() > *expiresAt) {
                 bearerChallenge(w, realm, "invalid_token")
                 writeJSON(w, 401, `{"ok":false,"error":"UNAUTHORIZED","message":"Invalid or expired token"}`)
+                return
+            }
+            // An agent token (adm_/usr_/org_ with scope `agent`) is valid only on the agents/*
+            // routes, which this builder does not create; it is rejected everywhere here.
+            if scope == "agent" {
+                bearerChallenge(w, "", "insufficient_scope")
+                writeJSON(w, 403, `{"ok":false,"error":"FORBIDDEN","message":"Insufficient scope"}`)
                 return
             }
             go db.TouchToken(context.Background(), tokenID) //nolint:errcheck
@@ -1510,7 +1592,9 @@ func orDefault(v, def int) int {
 }
 
 // adminCookiePath scopes the admin session cookie to /server: it must reach the panel
-// at /server/{admin_path} AND the shared /server/auth/logout route.
+// at /server/{admin_path} AND the shared /server/auth/logout route. SERVER.md lists the
+// scope as /server/{admin_path}/ but also requires the shared /server/auth/logout, which
+// that path cannot reach; /server is the narrowest path satisfying both (known template conflict).
 func (h *Handler) adminCookiePath() string {
     return "/server"
 }
@@ -1558,8 +1642,10 @@ type Store interface {
     UpdateAdminLogin(ctx context.Context, adminID, at int64, ip string) error
     UpdateAdminPassword(ctx context.Context, adminID int64, hash string) error
     SetAdminTOTPSecret(ctx context.Context, adminID int64, secret string) error
-    SetAdminTOTPEnabled(ctx context.Context, adminID int64, enabled bool) error
-    ClearAdminTOTP(ctx context.Context, adminID int64) error
+    // EnableAdminTOTP sets totp_enabled = 1 and stores the recovery-key hash array (JSON).
+    EnableAdminTOTP(ctx context.Context, adminID int64, recoveryCodesJSON string) error
+    // SetAdminRecoveryCodes replaces the stored recovery-key hash array (after one is used).
+    SetAdminRecoveryCodes(ctx context.Context, adminID int64, recoveryCodesJSON string) error
 
     // Feature 2 — API tokens
     ListTokens(ctx context.Context, ownerType string, ownerID int64) ([]model.Token, error)
@@ -1622,12 +1708,18 @@ Routes: `GET|POST /server/auth/login` (rate limit key `server.auth.login`, 5 / 9
 login/logout handlers below); API mirrors are `POST /api/{api_version}/server/auth/login`
 and `POST /api/{api_version}/server/auth/logout`. There is NO separate admin login route
 and no `admin_login.html`: `GET /server/{admin_path}` redirects an unauthenticated
-request to `/server/auth/login`. The admin-only routes below stay under the admin panel:
-`GET /server/{admin_path}/auth/session` ·
-`POST /server/{admin_path}/auth/password/change` (`auth.password_change`, 3 / 3600s) ·
-`POST /server/{admin_path}/auth/totp/enable` · `POST /server/{admin_path}/auth/totp/confirm`
-(`auth.totp_verify`, 10 / 300s) · `POST /server/{admin_path}/auth/totp/disable`.
-Every admin-only route is wrapped in `middleware.RequireAdmin`; rate limits are
+request to `/server/auth/login`. The admin self-service routes are exactly the SERVER.md
+"Admin - Profile" routes, `{base}` = `/server/{admin_path}/{admin_username}/profile` for the
+browser (HTML forms) and `/api/{api_version}/server/{admin_path}/{admin_username}/profile`
+for the JSON mirror: `POST {base}/password` (`auth.password_change`, 3 / 3600s) ·
+`GET {base}/security` (MFA status: TOTP enabled, recovery keys remaining) ·
+`POST {base}/security/totp/setup` (requires the current password; returns the secret and
+otpauth QR payload) · `POST {base}/security/totp/enable` (verifies the 6-digit code,
+enables TOTP, returns the 10 recovery keys ONCE; `auth.totp_verify`, 10 / 300s).
+There is no admin session-info route, no `/auth/*` admin route and no admin TOTP-disable
+route: the template defines none. `{admin_username}` MUST equal the signed-in admin's
+username (`adminSelf` below), otherwise 404. Passkeys (`.../security/passkey/*`) are not
+built by this builder. Every admin-only route is wrapped in `middleware.RequireAdmin`; rate limits are
 applied with `middleware.RateLimit` at registration time (Step 11), not inside
 the handler.
 
@@ -1635,6 +1727,7 @@ the handler.
 package handler
 
 import (
+    "encoding/json"
     "errors"
     "net/http"
     "strings"
@@ -1644,12 +1737,17 @@ import (
 )
 
 type loginRequest struct {
-    // Username or email. "username" is accepted as an alias for "login".
+    // SERVER.md PART 34: `identifier` is a username, user id or email. "login" and
+    // "username" are accepted as aliases.
+    Identifier string `json:"identifier"`
     Login    string `json:"login"`
     Username string `json:"username"`
     Password string `json:"password"`
     // Only read for admin accounts with two-factor enabled.
     TOTPCode string `json:"totp_code"`
+    // Single-use recovery key, accepted instead of TOTPCode (one-step stand-in for the
+    // template's /server/auth/recovery/use partial-session flow).
+    RecoveryKey string `json:"recovery_key"`
 }
 
 // Login handles POST /server/auth/login and POST /api/{api_version}/server/auth/login —
@@ -1663,7 +1761,10 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
     if !decodeJSON(w, r, &req) {
         return
     }
-    ident := req.Login
+    ident := req.Identifier
+    if ident == "" {
+        ident = req.Login
+    }
     if ident == "" {
         ident = req.Username
     }
@@ -1696,7 +1797,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
     switch {
     case admin != nil && admin.PasswordHash != "" && adminOK:
-        h.loginAdmin(w, r, admin, req.TOTPCode)
+        h.loginAdmin(w, r, admin, req.TOTPCode, req.RecoveryKey)
     case user != nil && user.PasswordHash != "" && userOK:
         h.loginUser(w, r, user)
     default:
@@ -1705,15 +1806,27 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 }
 
 // loginAdmin finishes a login whose password matched an admin account.
-func (h *Handler) loginAdmin(w http.ResponseWriter, r *http.Request, admin *model.Admin, totpCode string) {
+func (h *Handler) loginAdmin(w http.ResponseWriter, r *http.Request, admin *model.Admin, totpCode, recoveryKey string) {
     if admin.TOTPEnabled {
-        if totpCode == "" {
+        if totpCode == "" && recoveryKey == "" {
             writeErr(w, http.StatusUnauthorized, "TOTP_REQUIRED", "Two-factor authentication code required")
             return
         }
-        if !model.ValidateTOTP(admin.TOTPSecret, totpCode) {
-            writeErr(w, http.StatusUnauthorized, "TOTP_INVALID", "Invalid authenticator code")
-            return
+        if totpCode != "" {
+            if !model.ValidateTOTP(admin.TOTPSecret, totpCode) {
+                writeErr(w, http.StatusUnauthorized, "TOTP_INVALID", "Invalid authenticator code")
+                return
+            }
+        } else {
+            remaining, ok := model.ConsumeRecoveryKey(admin.RecoveryCodes, recoveryKey)
+            if !ok {
+                writeErr(w, http.StatusUnauthorized, "TOTP_INVALID", "Invalid recovery key")
+                return
+            }
+            if err := h.DB.SetAdminRecoveryCodes(r.Context(), admin.ID, remaining); err != nil {
+                writeInternal(w)
+                return
+            }
         }
     }
 
@@ -1802,28 +1915,24 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
     writeOK(w, http.StatusOK, nil)
 }
 
-// AdminSession handles GET /server/{admin_path}/auth/session.
-func (h *Handler) AdminSession(w http.ResponseWriter, r *http.Request) {
-    c, err := r.Cookie("admin_session")
-    if err != nil || c.Value == "" {
+// adminSelf resolves the signed-in admin and enforces that the {admin_username} path
+// segment is that admin's own username (SERVER.md "Admin Self" routes). Anything else is 404.
+func (h *Handler) adminSelf(w http.ResponseWriter, r *http.Request) (*model.Admin, bool) {
+    id := adminIDFrom(r)
+    if id == 0 {
         writeErr(w, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
-        return
+        return nil, false
     }
-    session, err := h.DB.GetAdminSessionByID(r.Context(), c.Value)
-    if err != nil {
-        writeErr(w, http.StatusUnauthorized, "UNAUTHORIZED", "Session expired")
-        return
-    }
-    admin, err := h.DB.GetAdminByID(r.Context(), session.AdminID)
+    admin, err := h.DB.GetAdminByID(r.Context(), id)
     if err != nil {
         writeInternal(w)
-        return
+        return nil, false
     }
-    writeOK(w, http.StatusOK, map[string]any{
-        "admin_id":   admin.ID,
-        "username":   admin.Username,
-        "expires_at": session.ExpiresAt,
-    })
+    if !strings.EqualFold(pathParam(r, "admin_username"), admin.Username) {
+        writeErr(w, http.StatusNotFound, "NOT_FOUND", "Not found")
+        return nil, false
+    }
+    return admin, true
 }
 
 type passwordChangeRequest struct {
@@ -1831,19 +1940,19 @@ type passwordChangeRequest struct {
     NewPassword     string `json:"new_password"`
 }
 
-// AdminPasswordChange handles POST /server/{admin_path}/auth/password/change.
+// AdminPasswordChange handles POST /server/{admin_path}/{admin_username}/profile/password
+// and its /api/{api_version}/server/{admin_path}/{admin_username}/profile/password mirror.
 func (h *Handler) AdminPasswordChange(w http.ResponseWriter, r *http.Request) {
+    admin, ok := h.adminSelf(w, r)
+    if !ok {
+        return
+    }
     var req passwordChangeRequest
     if !decodeJSON(w, r, &req) {
         return
     }
     if err := model.ValidatePassword(req.NewPassword); err != nil {
         writeErr(w, http.StatusBadRequest, "PASSWORD_INVALID", err.Error())
-        return
-    }
-    admin, err := h.DB.GetAdminByID(r.Context(), adminIDFrom(r))
-    if err != nil {
-        writeInternal(w)
         return
     }
     if !model.CheckPassword(admin.PasswordHash, req.CurrentPassword) {
@@ -1862,12 +1971,38 @@ func (h *Handler) AdminPasswordChange(w http.ResponseWriter, r *http.Request) {
     writeOK(w, http.StatusOK, nil)
 }
 
-// AdminTOTPEnable handles POST /server/{admin_path}/auth/totp/enable. The secret
-// is stored but totp_enabled stays 0 until AdminTOTPConfirm succeeds.
-func (h *Handler) AdminTOTPEnable(w http.ResponseWriter, r *http.Request) {
-    admin, err := h.DB.GetAdminByID(r.Context(), adminIDFrom(r))
-    if err != nil {
-        writeInternal(w)
+// AdminSecurity handles GET .../profile/security: the admin's MFA status.
+func (h *Handler) AdminSecurity(w http.ResponseWriter, r *http.Request) {
+    admin, ok := h.adminSelf(w, r)
+    if !ok {
+        return
+    }
+    var codes []string
+    _ = json.Unmarshal([]byte(admin.RecoveryCodes), &codes)
+    writeOK(w, http.StatusOK, map[string]any{
+        "totp_enabled":            admin.TOTPEnabled,
+        "recovery_keys_remaining": len(codes),
+    })
+}
+
+type totpSetupRequest struct {
+    Password string `json:"password"`
+}
+
+// AdminTOTPSetup handles POST .../profile/security/totp/setup. It requires the current
+// password, stores the new secret (totp_enabled stays 0 until enable succeeds) and returns
+// the secret plus the otpauth URI for the QR code.
+func (h *Handler) AdminTOTPSetup(w http.ResponseWriter, r *http.Request) {
+    admin, ok := h.adminSelf(w, r)
+    if !ok {
+        return
+    }
+    var req totpSetupRequest
+    if !decodeJSON(w, r, &req) {
+        return
+    }
+    if !model.CheckPassword(admin.PasswordHash, req.Password) {
+        writeInvalidCredentials(w)
         return
     }
     secret, uri, err := model.NewTOTPSecret(h.ServerName, admin.Username)
@@ -1879,64 +2014,38 @@ func (h *Handler) AdminTOTPEnable(w http.ResponseWriter, r *http.Request) {
         writeInternal(w)
         return
     }
-    writeOK(w, http.StatusOK, map[string]any{"otpauth_uri": uri})
+    writeOK(w, http.StatusOK, map[string]any{"secret": secret, "otpauth_uri": uri})
 }
 
 type totpCodeRequest struct {
     Code string `json:"code"`
 }
 
-// AdminTOTPConfirm handles POST /server/{admin_path}/auth/totp/confirm.
-func (h *Handler) AdminTOTPConfirm(w http.ResponseWriter, r *http.Request) {
-    var req totpCodeRequest
-    if !decodeJSON(w, r, &req) {
+// AdminTOTPEnable handles POST .../profile/security/totp/enable. It verifies the 6-digit
+// code, enables TOTP and returns the 10 recovery keys exactly once (only hashes are stored).
+func (h *Handler) AdminTOTPEnable(w http.ResponseWriter, r *http.Request) {
+    admin, ok := h.adminSelf(w, r)
+    if !ok {
         return
     }
-    admin, err := h.DB.GetAdminByID(r.Context(), adminIDFrom(r))
-    if err != nil {
-        writeInternal(w)
+    var req totpCodeRequest
+    if !decodeJSON(w, r, &req) {
         return
     }
     if admin.TOTPSecret == "" || !model.ValidateTOTP(admin.TOTPSecret, req.Code) {
         writeErr(w, http.StatusUnauthorized, "TOTP_INVALID", "Invalid authenticator code")
         return
     }
-    if err := h.DB.SetAdminTOTPEnabled(r.Context(), admin.ID, true); err != nil {
-        writeInternal(w)
-        return
-    }
-    writeOK(w, http.StatusOK, nil)
-}
-
-type totpDisableRequest struct {
-    Password string `json:"password"`
-    Code     string `json:"code"`
-}
-
-// AdminTOTPDisable handles POST /server/{admin_path}/auth/totp/disable.
-func (h *Handler) AdminTOTPDisable(w http.ResponseWriter, r *http.Request) {
-    var req totpDisableRequest
-    if !decodeJSON(w, r, &req) {
-        return
-    }
-    admin, err := h.DB.GetAdminByID(r.Context(), adminIDFrom(r))
+    keys, hashesJSON, err := model.NewRecoveryKeys()
     if err != nil {
         writeInternal(w)
         return
     }
-    if !model.CheckPassword(admin.PasswordHash, req.Password) {
-        writeInvalidCredentials(w)
-        return
-    }
-    if !model.ValidateTOTP(admin.TOTPSecret, req.Code) {
-        writeErr(w, http.StatusUnauthorized, "TOTP_INVALID", "Invalid authenticator code")
-        return
-    }
-    if err := h.DB.ClearAdminTOTP(r.Context(), admin.ID); err != nil {
+    if err := h.DB.EnableAdminTOTP(r.Context(), admin.ID, hashesJSON); err != nil {
         writeInternal(w)
         return
     }
-    writeOK(w, http.StatusOK, nil)
+    writeOK(w, http.StatusOK, map[string]any{"recovery_keys": keys})
 }
 ```
 
@@ -1949,7 +2058,7 @@ Routes: `GET|POST /server/auth/register` and `POST /api/{api_version}/server/aut
 `POST /server/{admin_path}/users/invite` (`auth.invite_create`, 20 / 3600s, RequireAdmin) ·
 `POST /server/{admin_path}/users/create` (RequireAdmin) ·
 `POST /api/{api_version}/server/auth/invite/user/{code}` (`server.auth.invite.user`, 10 / 3600s) ·
-`GET|PUT /api/{api_version}/users/settings` (RequireUser) ·
+`GET|PATCH /api/{api_version}/users` (RequireUser; SERVER.md "Users": current user's profile) ·
 `POST /api/{api_version}/users/security/password` (RequireUser, `auth.password_change`, 3 / 3600s) ·
 `POST /server/auth/password/forgot` and `/api/{api_version}/server/auth/password/forgot` (`server.auth.password.forgot`, 3 / 3600s) ·
 `POST /server/auth/password/reset` and `/api/{api_version}/server/auth/password/reset` (`server.auth.password.reset`, 5 / 3600s) ·
@@ -2336,7 +2445,7 @@ func (h *Handler) UserAcceptInvite(w http.ResponseWriter, r *http.Request) {
     writeOK(w, http.StatusOK, map[string]any{"user_id": userID, "username": invite.Username})
 }
 
-// UserMe handles GET /api/{api_version}/users/settings.
+// UserMe handles GET /api/{api_version}/users (the current user's profile).
 func (h *Handler) UserMe(w http.ResponseWriter, r *http.Request) {
     user, err := h.DB.GetUserByID(r.Context(), userIDFrom(r))
     if err != nil {
@@ -2352,7 +2461,7 @@ type updateMeRequest struct {
     AvatarURL   string `json:"avatar_url"`
 }
 
-// UserUpdateMe handles PUT /api/{api_version}/users/settings. Only profile fields are
+// UserUpdateMe handles PATCH /api/{api_version}/users (browser form: POST /users). Only profile fields are
 // updatable here; username and email changes have their own flows.
 func (h *Handler) UserUpdateMe(w http.ResponseWriter, r *http.Request) {
     var req updateMeRequest
@@ -2524,11 +2633,16 @@ func (h *Handler) UserEmailVerify(w http.ResponseWriter, r *http.Request) {
 
 ### Feature 2 — API token handler (`src/handler/token_handler.go`)
 
-Routes (same handlers, two route groups): users — `GET|POST /api/{api_version}/users/tokens`
-and `DELETE /api/{api_version}/users/tokens/{id}` behind `RequireUser`; admins —
-`GET|POST /api/{api_version}/server/{admin_path}/security/tokens` and
-`DELETE /api/{api_version}/server/{admin_path}/security/tokens/{id}` behind
-`RequireAdmin`. The owner is resolved from whichever ID the middleware put in the
+Routes (same handlers, three route groups, SERVER.md "Users" and "Orgs" API tables): users —
+`GET|POST /api/{api_version}/users/tokens` and `GET|DELETE
+/api/{api_version}/users/tokens/{token_id}` behind `RequireUser` (browser: `/users/tokens`);
+admins — `GET|POST /api/{api_version}/server/{admin_path}/security/tokens` and
+`GET|DELETE /api/{api_version}/server/{admin_path}/security/tokens/{token_id}` behind
+`RequireAdmin`; orgs (built only with Feature 4) — `GET|POST
+/api/{api_version}/orgs/{slug}/tokens` and `GET|DELETE
+/api/{api_version}/orgs/{slug}/tokens/{token_id}` behind `RequireUser`, org owner or org
+admin only (browser: `/orgs/{slug}/tokens`). Org tokens use the `org_` prefix, are shown once at
+creation, and reach that org only. The owner is resolved from whichever ID the middleware put in the
 context. All rows live in the unified `tokens` table; revoking deletes the row.
 
 ```go
@@ -2566,22 +2680,35 @@ func toTokenResponse(t *model.Token) tokenResponse {
     }
 }
 
-// tokenOwner resolves the authenticated caller into a tokens owner pair.
-func tokenOwner(r *http.Request) (ownerType string, ownerID int64, ok bool) {
+// tokenOwner resolves the caller into a tokens owner pair. A route with a {slug} is an org
+// token route: the caller must be that org's owner or admin (drop this branch if Feature 4
+// is not built). Otherwise the owner is the signed-in admin or user.
+func (h *Handler) tokenOwner(w http.ResponseWriter, r *http.Request) (ownerType string, ownerID int64, ok bool) {
+    if pathParam(r, "slug") != "" {
+        org, member, found := h.orgContext(w, r)
+        if !found {
+            return "", 0, false
+        }
+        if !canManageOrg(member) {
+            writeErr(w, http.StatusForbidden, "FORBIDDEN", "Insufficient permissions")
+            return "", 0, false
+        }
+        return "org", org.ID, true
+    }
     if id := adminIDFrom(r); id != 0 {
         return "admin", id, true
     }
     if id := userIDFrom(r); id != 0 {
         return "user", id, true
     }
+    writeErr(w, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
     return "", 0, false
 }
 
-// ListTokens handles GET /api/{api_version}/users/tokens (and the admin twin).
+// ListTokens handles GET /api/{api_version}/users/tokens (and the admin and org twins).
 func (h *Handler) ListTokens(w http.ResponseWriter, r *http.Request) {
-    ownerType, ownerID, ok := tokenOwner(r)
+    ownerType, ownerID, ok := h.tokenOwner(w, r)
     if !ok {
-        writeErr(w, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
         return
     }
     tokens, err := h.DB.ListTokens(r.Context(), ownerType, ownerID)
@@ -2603,13 +2730,12 @@ type createTokenRequest struct {
     ExpiresAt *int64 `json:"expires_at"`
 }
 
-// CreateToken handles POST /api/{api_version}/users/tokens (and the admin twin). The raw
+// CreateToken handles POST /api/{api_version}/users/tokens (and the admin and org twins). The raw
 // token `{prefix}_{32 alphanumeric}` is returned once here and never again — only its
 // SHA-256 hash and the 8-character display prefix are stored.
 func (h *Handler) CreateToken(w http.ResponseWriter, r *http.Request) {
-    ownerType, ownerID, ok := tokenOwner(r)
+    ownerType, ownerID, ok := h.tokenOwner(w, r)
     if !ok {
-        writeErr(w, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
         return
     }
     var req createTokenRequest
@@ -2629,8 +2755,11 @@ func (h *Handler) CreateToken(w http.ResponseWriter, r *http.Request) {
     }
 
     prefix := model.TokenPrefixUser
-    if ownerType == "admin" {
+    switch ownerType {
+    case "admin":
         prefix = model.TokenPrefixAdmin
+    case "org":
+        prefix = model.TokenPrefixOrg
     }
     raw, hash, err := model.NewTokenRaw(prefix)
     if err != nil {
@@ -2670,24 +2799,44 @@ func (h *Handler) CreateToken(w http.ResponseWriter, r *http.Request) {
     })
 }
 
-// RevokeToken handles DELETE /api/{api_version}/users/tokens/{id} (and the admin twin).
-func (h *Handler) RevokeToken(w http.ResponseWriter, r *http.Request) {
-    ownerType, ownerID, ok := tokenOwner(r)
+// ownedToken loads the token named by {token_id} and checks it belongs to the caller's
+// owner pair; any miss is the same 404 so token ids cannot be probed across owners.
+func (h *Handler) ownedToken(w http.ResponseWriter, r *http.Request) (*model.Token, bool) {
+    ownerType, ownerID, ok := h.tokenOwner(w, r)
     if !ok {
-        writeErr(w, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
-        return
+        return nil, false
     }
-    id, err := strconv.ParseInt(pathParam(r, "id"), 10, 64)
+    id, err := strconv.ParseInt(pathParam(r, "token_id"), 10, 64)
     if err != nil {
         writeErr(w, http.StatusBadRequest, "INVALID_REQUEST", "Token id must be an integer")
-        return
+        return nil, false
     }
     token, err := h.DB.GetTokenByID(r.Context(), id)
     if err != nil || token.OwnerType != ownerType || token.OwnerID != ownerID {
         writeErr(w, http.StatusNotFound, "TOKEN_NOT_FOUND", "Token not found")
+        return nil, false
+    }
+    return token, true
+}
+
+// GetToken handles GET /api/{api_version}/users/tokens/{token_id} (and the admin and org
+// twins). Details never include the raw token or its hash.
+func (h *Handler) GetToken(w http.ResponseWriter, r *http.Request) {
+    token, ok := h.ownedToken(w, r)
+    if !ok {
         return
     }
-    if err := h.DB.DeleteToken(r.Context(), id); err != nil {
+    writeOK(w, http.StatusOK, toTokenResponse(token))
+}
+
+// RevokeToken handles DELETE /api/{api_version}/users/tokens/{token_id} (and the admin and
+// org twins).
+func (h *Handler) RevokeToken(w http.ResponseWriter, r *http.Request) {
+    token, ok := h.ownedToken(w, r)
+    if !ok {
+        return
+    }
+    if err := h.DB.DeleteToken(r.Context(), token.ID); err != nil {
         writeInternal(w)
         return
     }
@@ -2698,9 +2847,9 @@ func (h *Handler) RevokeToken(w http.ResponseWriter, r *http.Request) {
 ### Feature 4 — Org handler (`src/handler/org_handler.go`)
 
 Routes, all behind `RequireUser`: `GET|POST /api/{api_version}/orgs` ·
-`GET|PUT|DELETE /api/{api_version}/orgs/{slug}` ·
+`GET|PATCH|DELETE /api/{api_version}/orgs/{slug}` ·
 `GET|POST /api/{api_version}/orgs/{slug}/members` ·
-`PUT|DELETE /api/{api_version}/orgs/{slug}/members/{username}` ·
+`PATCH|DELETE /api/{api_version}/orgs/{slug}/members/{member_id}` (`member_id` is the member's user id) ·
 `POST /api/{api_version}/orgs/{slug}/invites` ·
 `GET /api/{api_version}/orgs/invites/{token}`.
 
@@ -2711,6 +2860,7 @@ import (
     "errors"
     "fmt"
     "net/http"
+    "strconv"
     "strings"
     "time"
 
@@ -2823,7 +2973,7 @@ type updateOrgRequest struct {
     AvatarURL   string `json:"avatar_url"`
 }
 
-// UpdateOrg handles PUT /api/{api_version}/orgs/{slug} — owner or org-admin only.
+// UpdateOrg handles PATCH /api/{api_version}/orgs/{slug} — owner or org-admin only.
 func (h *Handler) UpdateOrg(w http.ResponseWriter, r *http.Request) {
     org, member, ok := h.orgContext(w, r)
     if !ok {
@@ -2926,7 +3076,7 @@ type changeRoleRequest struct {
     Role string `json:"role"`
 }
 
-// ChangeOrgMemberRole handles PUT /api/{api_version}/orgs/{slug}/members/{username}.
+// ChangeOrgMemberRole handles PATCH /api/{api_version}/orgs/{slug}/members/{member_id}.
 func (h *Handler) ChangeOrgMemberRole(w http.ResponseWriter, r *http.Request) {
     org, member, ok := h.orgContext(w, r)
     if !ok {
@@ -2948,7 +3098,12 @@ func (h *Handler) ChangeOrgMemberRole(w http.ResponseWriter, r *http.Request) {
         writeErr(w, http.StatusForbidden, "FORBIDDEN", "Only the owner can transfer ownership")
         return
     }
-    target, err := h.DB.GetUserByUsername(r.Context(), pathParam(r, "username"))
+    memberID, perr := strconv.ParseInt(pathParam(r, "member_id"), 10, 64)
+    if perr != nil {
+        writeErr(w, http.StatusBadRequest, "INVALID_REQUEST", "Member id must be an integer")
+        return
+    }
+    target, err := h.DB.GetUserByID(r.Context(), memberID)
     if err != nil || target == nil {
         writeErr(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
         return
@@ -2964,14 +3119,19 @@ func (h *Handler) ChangeOrgMemberRole(w http.ResponseWriter, r *http.Request) {
     writeOK(w, http.StatusOK, map[string]any{"username": target.Username, "role": req.Role})
 }
 
-// RemoveOrgMember handles DELETE /api/{api_version}/orgs/{slug}/members/{username}.
+// RemoveOrgMember handles DELETE /api/{api_version}/orgs/{slug}/members/{member_id}.
 // Owners and org-admins can remove anyone; any member can remove themselves.
 func (h *Handler) RemoveOrgMember(w http.ResponseWriter, r *http.Request) {
     org, member, ok := h.orgContext(w, r)
     if !ok {
         return
     }
-    target, err := h.DB.GetUserByUsername(r.Context(), pathParam(r, "username"))
+    memberID, perr := strconv.ParseInt(pathParam(r, "member_id"), 10, 64)
+    if perr != nil {
+        writeErr(w, http.StatusBadRequest, "INVALID_REQUEST", "Member id must be an integer")
+        return
+    }
+    target, err := h.DB.GetUserByID(r.Context(), memberID)
     if err != nil || target == nil {
         writeErr(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
         return
@@ -3516,7 +3676,7 @@ Rendered for both the admin-invite and direct-create private-mode flows (Step 4/
 
   <section class="profile-section">
     <h2>Edit profile</h2>
-    <form method="POST" action="/users/settings">
+    <form method="POST" action="/users">
       <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
       <input type="hidden" name="_method" value="PUT">
       <div class="field">
@@ -3677,7 +3837,7 @@ Register HTML-serving routes alongside the API routes. Each HTML route renders t
 | GET | `/server/auth/password/reset` | `auth/password_reset_confirm.html` (reads the emailed `?token=`) | none |
 | GET | `/server/auth/verify/{code}` | verifies the email, then redirects to `/users` | none |
 | GET | `/server/auth/invite/user/{code}` | `auth/invite_accept.html` | none |
-| GET | `/users/settings` | `auth/profile.html` | RequireUser |
+| GET | `/users` | `auth/profile.html` | RequireUser |
 | GET | `/orgs/new` | `auth/org_new.html` | RequireUser |
 | GET | `/domains/add` | `auth/domain_add.html` | RequireUser |
 
@@ -3908,6 +4068,8 @@ func (s *stubStore) GetAdminSessionByID(ctx context.Context, id string) (*model.
     return s.adminSessByID(ctx, id)
 }
 
+func (s *stubStore) SetAdminRecoveryCodes(context.Context, int64, string) error { return nil }
+
 func (s *stubStore) UpdateAdminLogin(ctx context.Context, adminID, at int64, ip string) error {
     if s.updateAdminLog == nil {
         return nil
@@ -4018,8 +4180,10 @@ import (
     "context"
     "net/http"
     "net/http/httptest"
+    "strings"
     "testing"
 
+    "{MODULE}/src/middleware"
     "{MODULE}/src/model"
 )
 
@@ -4226,51 +4390,65 @@ func TestLoginRedirectByAccountType(t *testing.T) {
     }
 }
 
-// TestAdminSessionAuthFailure covers the auth-failure category: no cookie, an
-// unknown session id, and a session the store rejects as expired.
-func TestAdminSessionAuthFailure(t *testing.T) {
-    tests := []struct {
-        name   string
-        cookie string
-        lookup func(ctx context.Context, id string) (*model.AdminSession, error)
-    }{
-        {
-            name:   "no cookie at all",
-            cookie: "",
-            lookup: func(context.Context, string) (*model.AdminSession, error) {
-                t.Fatal("store must not be reached without a cookie")
-                return nil, nil
-            },
-        },
-        {
-            name:   "unknown session id",
-            cookie: "deadbeef",
-            lookup: func(context.Context, string) (*model.AdminSession, error) { return nil, ErrNotFound },
-        },
-        {
-            name:   "expired session",
-            cookie: "expired",
-            lookup: func(context.Context, string) (*model.AdminSession, error) { return nil, ErrNotFound },
-        },
+// TestAdminSelfRoutes covers the admin profile routes: no signed-in admin is 401, and an
+// {admin_username} that is not the signed-in admin's own is 404.
+func TestAdminSelfRoutes(t *testing.T) {
+    admin := &model.Admin{ID: 1, Username: "root"}
+    h := newTestHandler(&stubStore{
+        adminByID: func(context.Context, int64) (*model.Admin, error) { return admin, nil },
+    })
+
+    t.Run("no admin in context", func(t *testing.T) {
+        r := httptest.NewRequest(http.MethodGet, "/server/{admin_path}/root/profile/security", nil)
+        r.SetPathValue("admin_username", "root")
+        w := httptest.NewRecorder()
+        h.AdminSecurity(w, r)
+        if w.Code != http.StatusUnauthorized {
+            t.Fatalf("status = %d, want 401 (body %q)", w.Code, w.Body.String())
+        }
+        if env := decodeEnvelope(t, w); env["error"] != "UNAUTHORIZED" {
+            t.Fatalf("error = %v, want UNAUTHORIZED", env["error"])
+        }
+    })
+
+    t.Run("another admin's username", func(t *testing.T) {
+        r := httptest.NewRequest(http.MethodGet, "/server/{admin_path}/other/profile/security", nil)
+        r.SetPathValue("admin_username", "other")
+        r = r.WithContext(context.WithValue(r.Context(), middleware.CtxAdminID, int64(1)))
+        w := httptest.NewRecorder()
+        h.AdminSecurity(w, r)
+        if w.Code != http.StatusNotFound {
+            t.Fatalf("status = %d, want 404", w.Code)
+        }
+    })
+}
+
+// TestAdminRecoveryKey covers a single-use recovery key standing in for the TOTP code.
+func TestAdminRecoveryKey(t *testing.T) {
+    const password = "correct-horse-battery-staple"
+    secret, _, err := model.NewTOTPSecret("{project_name}", "root")
+    if err != nil {
+        t.Fatalf("NewTOTPSecret: %v", err)
     }
+    keys, hashesJSON, err := model.NewRecoveryKeys()
+    if err != nil {
+        t.Fatalf("NewRecoveryKeys: %v", err)
+    }
+    admin := &model.Admin{
+        ID: 1, Username: "root", PasswordHash: mustHash(t, password),
+        TOTPSecret: secret, TOTPEnabled: true, RecoveryCodes: hashesJSON,
+    }
+    h := newTestHandler(&stubStore{
+        adminByUsername: func(context.Context, string) (*model.Admin, error) { return admin, nil },
+    })
 
-    for _, tc := range tests {
-        t.Run(tc.name, func(t *testing.T) {
-            h := newTestHandler(&stubStore{adminSessByID: tc.lookup})
-            r := httptest.NewRequest(http.MethodGet, "/server/{admin_path}/auth/session", nil)
-            if tc.cookie != "" {
-                r.AddCookie(&http.Cookie{Name: "admin_session", Value: tc.cookie})
-            }
-            w := httptest.NewRecorder()
-            h.AdminSession(w, r)
-
-            if w.Code != http.StatusUnauthorized {
-                t.Fatalf("status = %d, want 401 (body %q)", w.Code, w.Body.String())
-            }
-            if env := decodeEnvelope(t, w); env["error"] != "UNAUTHORIZED" {
-                t.Fatalf("error = %v, want UNAUTHORIZED", env["error"])
-            }
-        })
+    w := postJSON(h.Login, "/server/auth/login",
+        `{"identifier":"root","password":"`+password+`","recovery_key":"`+strings.ToUpper(keys[0])+`"}`)
+    if w.Code != http.StatusOK {
+        t.Fatalf("status = %d, want 200 (body %q)", w.Code, w.Body.String())
+    }
+    if _, ok := model.ConsumeRecoveryKey(hashesJSON, "ffffffff-ffff"); ok {
+        t.Fatal("an unknown recovery key must not match")
     }
 }
 
@@ -4564,6 +4742,84 @@ func TestDecodeJSONBodyLimit(t *testing.T) {
 }
 ```
 
+### Org tokens (`src/handler/token_handler_test.go`)
+
+```go
+package handler
+
+import (
+    "context"
+    "net/http"
+    "net/http/httptest"
+    "strings"
+    "testing"
+
+    "{MODULE}/src/middleware"
+    "{MODULE}/src/model"
+)
+
+// orgTokenStore stubs only what the org token routes call.
+type orgTokenStore struct {
+    Store
+    role    string
+    created *model.Token
+}
+
+func (s *orgTokenStore) GetOrgBySlug(context.Context, string) (*model.Org, error) {
+    return &model.Org{ID: 3, Slug: "acme"}, nil
+}
+
+func (s *orgTokenStore) GetOrgMember(context.Context, int64, int64) (*model.OrgMember, error) {
+    return &model.OrgMember{OrgID: 3, UserID: 7, Role: s.role}, nil
+}
+
+func (s *orgTokenStore) CreateToken(_ context.Context, t *model.Token) (int64, error) {
+    s.created = t
+    return 1, nil
+}
+
+func TestCreateOrgToken(t *testing.T) {
+    tests := []struct {
+        name       string
+        role       string
+        wantStatus int
+        wantPrefix string
+    }{
+        {name: "org owner gets an org_ token", role: "owner", wantStatus: http.StatusCreated, wantPrefix: "org_"},
+        {name: "org admin gets an org_ token", role: "admin", wantStatus: http.StatusCreated, wantPrefix: "org_"},
+        {name: "plain member is forbidden", role: "member", wantStatus: http.StatusForbidden},
+    }
+    for _, tc := range tests {
+        t.Run(tc.name, func(t *testing.T) {
+            store := &orgTokenStore{role: tc.role}
+            h := newTestHandler(store)
+            r := httptest.NewRequest(http.MethodPost, "/api/{api_version}/orgs/acme/tokens",
+                strings.NewReader(`{"name":"ci","scope":"read"}`))
+            r.SetPathValue("slug", "acme")
+            r = r.WithContext(context.WithValue(r.Context(), middleware.CtxUserID, int64(7)))
+            w := httptest.NewRecorder()
+            h.CreateToken(w, r)
+
+            if w.Code != tc.wantStatus {
+                t.Fatalf("status = %d, want %d (body %q)", w.Code, tc.wantStatus, w.Body.String())
+            }
+            if tc.wantPrefix == "" {
+                if store.created != nil {
+                    t.Fatal("a token was created for a forbidden caller")
+                }
+                return
+            }
+            if store.created.OwnerType != "org" || store.created.OwnerID != 3 {
+                t.Fatalf("owner = %s/%d, want org/3", store.created.OwnerType, store.created.OwnerID)
+            }
+            if !strings.HasPrefix(store.created.TokenPrefix, tc.wantPrefix) {
+                t.Fatalf("token prefix = %q, want %q", store.created.TokenPrefix, tc.wantPrefix)
+            }
+        })
+    }
+}
+```
+
 ### Rate limit and scope (`src/middleware/middleware_test.go`)
 
 These two categories live in the middleware package because Step 6 and Step 7
@@ -4730,8 +4986,23 @@ func TestRequireToken(t *testing.T) {
         },
         {
             name: "unknown or revoked token", db: &stubTokenDB{err: context.Canceled},
-            header: map[string]string{"Authorization": "Bearer usr_unknown"},
+            header: map[string]string{"Authorization": "Bearer usr_abcdefghijklmnopqrstuvwxyz012345"},
             wantStatus: http.StatusUnauthorized, wantAuth: `Bearer realm="testapp", error="invalid_token"`, wantLookups: 1,
+        },
+        {
+            name: "malformed token never reaches the database", db: &stubTokenDB{ownerType: "user", ownerID: 7, scope: "global"},
+            header: map[string]string{"Authorization": "Bearer usr_unknown"},
+            wantStatus: http.StatusUnauthorized, wantAuth: `Bearer realm="testapp", error="invalid_token"`,
+        },
+        {
+            name: "prefix must match the holder", db: &stubTokenDB{ownerType: "user", ownerID: 7, scope: "global"},
+            header: map[string]string{"Authorization": "Bearer adm_abcdefghijklmnopqrstuvwxyz012345"},
+            wantStatus: http.StatusUnauthorized, wantAuth: `Bearer realm="testapp", error="invalid_token"`, wantLookups: 1,
+        },
+        {
+            name: "agent-scope token is rejected on non-agent routes", db: &stubTokenDB{ownerType: "user", ownerID: 7, scope: "agent"},
+            header: map[string]string{"Authorization": "Bearer usr_abcdefghijklmnopqrstuvwxyz012345"},
+            wantStatus: http.StatusForbidden, wantAuth: `Bearer error="insufficient_scope"`, wantLookups: 1,
         },
         {
             name: "expired token", db: &stubTokenDB{ownerType: "user", ownerID: 7, scope: "global", expiresAt: &past},
@@ -4945,12 +5216,12 @@ Every remaining Step 8 handler gets a table-driven test file built exactly like
 the two above — one `stubStore` hook per store call the handler makes, one table
 row per outcome:
 
-- `Logout`, `AdminSession`, `AdminPasswordChange`, `AdminTOTPEnable`,
-  `AdminTOTPConfirm`, `AdminTOTPDisable`
+- `Logout`, `AdminPasswordChange`, `AdminSecurity`, `AdminTOTPSetup`,
+  `AdminTOTPEnable`
 - `AdminInviteUser`, `AdminCreateUser`, `UserAcceptInvite`,
   `UserMe`, `UserUpdateMe`, `UserPasswordChange`, `UserPasswordResetRequest`,
   `UserPasswordResetConfirm`, `UserEmailVerify`
-- `ListTokens`, `CreateToken`, `RevokeToken`
+- `ListTokens`, `CreateToken`, `GetToken`, `RevokeToken`
 - `ListOrgs`, `CreateOrg`, `GetOrg`, `UpdateOrg`, `DeleteOrg`, `ListOrgMembers`,
   `AddOrgMember`, `ChangeOrgMemberRole`, `RemoveOrgMember`, `CreateOrgInvite`,
   `AcceptOrgInvite`
