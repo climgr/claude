@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202609270001-git
+##@Version           :  202611220006-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, Sep 27, 2026 EDT
 # @@File             :  enforce-doc-sync.sh
 # @@Description      :  PreToolUse Bash hook: blocks `gitcommit --dir <path> all` unless .git/COMMIT_MESS carries an explicit IDEA.md and README.md status line, for any repo where that file exists.
-# @@Changelog        :  Initial version.
+# @@Changelog        :  The status line text after the colon must start with updated or N/A; an ordinary per-file change bullet no longer satisfies the gate. Initial version.
 # @@TODO             :  None
 # @@Other            :  Forced-acknowledgment gate, not a content-diff heuristic: only checks that a status line is PRESENT, never that its claim is true (same trust model as enforce-commit-mess-coverage.sh's per-file bullets). Accepted forms: `- IDEA.md: updated (...)` or `- IDEA.md: N/A - no user-facing change` (same for README.md). DOC_SYNC_GATE_OVERRIDE=1 <gitcommit ...> bypasses for that one call - user-directed only, never Claude's own initiative.
 # @@Resource         :  CLAUDE.md - Commit Workflow · home/memory/gitcommit_conventions.md · home/memory/project_conventions.md
@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202609270001-git"
+VERSION="202611220006-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 set -euo pipefail
 
@@ -120,11 +120,12 @@ def status_line_present(mess_text, filename):
     # Accepted forms:
     #   - IDEA.md: updated (added X to Business Logic)
     #   - IDEA.md: N/A - no user-facing change
-    # Presence-only check - it never verifies the claim is true, same trust
-    # model as enforce-commit-mess-coverage.sh's per-file `- path:` bullets.
-    pattern = r"^\s*-\s*`?" + re.escape(filename) + r"`?\s*:\s*\S"
+    # Presence-only check - it never verifies the claim is true, but the text after
+    # the colon must start with `updated` or `N/A`, so an ordinary per-file change
+    # bullet (`- README.md: add a row`) does not count as the doc-sync status line.
+    pattern = r"^\s*-\s*`?" + re.escape(filename) + r"`?\s*:\s*(?:updated|N/A)\b"
     for line in mess_text.split("\n"):
-        if re.match(pattern, line):
+        if re.match(pattern, line, re.IGNORECASE):
             return True
     return False
 
