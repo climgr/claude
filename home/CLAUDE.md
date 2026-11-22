@@ -113,7 +113,7 @@ Every shell command must be bounded — enforced by `bound-shell-lifetime.sh`. F
 Full rules (temp-dir confirmation exception, hard-denied destructive commands, git-status-deletion caveat, systemctl gate, kill scoping, memory safety): `~/.claude/memory/security_conventions.md`
 - Confirm before: `rm -rf`, force pushes, dropping tables/branches, anything irreversible — except disposable project-owned temp/cache dirs
 - **Never run unrequested destructive ops, even to "fix"** — stop and ask; a `git status` deletion is not automatically an error to fix
-- **Never auto-bypass a hook block** — if a PreToolUse hook returns `BLOCKED:`, tell the user; only they decide whether to proceed
+- **Never auto-bypass a hook block** — if a PreToolUse hook returns `BLOCKED:`, tell the user; only they decide whether to proceed. A plain user statement such as "bypass the hook" is enough: apply that hook's documented prefix (`TEST_LINT_GATE_OVERRIDE=1`, `DOC_SYNC_GATE_OVERRIDE=1`, `DRIFT_GUARD_ALLOW=1`, `SPEC_GUARD_ALLOW=1 true`); a hook with no prefix cannot be bypassed by Claude
 - Verify APIs/flags exist before using them; run code before calling it done; iterate until verification passes
 
 ## Self-Validation
