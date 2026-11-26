@@ -100,14 +100,14 @@ BUILD_DATE = os.environ.get("BUILD_DATE", "unknown")
 
 | Context | Tags applied |
 |---------|-------------|
-| Any push | `:{commit_id}` only |
-| Beta branch push | `:beta`, `:{commit_id}` |
+| Push to `main` | `:{commit_id}` only |
+| Push of a `*-beta` tag | `:beta`, `:{commit_id}` |
 | Tagged release | `:{version}`, `:latest`, `:YYMM`, `:{commit_sha_short}` |
 
 - `YYMM` = two-digit year + two-digit month (e.g. `2505` for May 2025) — monthly snapshot pin
 - **Never tag a non-release build as `:latest`** — `:latest` is for tagged releases only
 - `:{commit_sha_short}` on every push enables pinning to a specific build
-- `:devel` is NOT part of the push tags: it comes from a separate `build-devel` job inside `docker.yml` (daily schedule + `workflow_dispatch` + push, gated by `if:` to `main`/`master` only; there is no `devel` or `dev` branch), built from `docker/Dockerfile.dev`
+- `:devel` is NOT part of the push tags: it comes from a separate `build-devel` job inside `docker.yml` (daily schedule + `workflow_dispatch` + push, gated by `if:` to `main` only; there is no `devel` or `dev` branch), built from `docker/Dockerfile.dev`
 
 ---
 
@@ -120,7 +120,7 @@ release.txt: 1.3.0
 git tag:     v1.3.0
 ```
 
-A beta release name has no `v` (`20251205-beta`). The devel release is ONE rolling release named `devel`: each devel build deletes and replaces the previous one.
+A beta release name has no `v` (`20251205143022-beta`). The devel release is ONE rolling release named `devel`: each devel build deletes and replaces the previous one.
 
 CI detects a tagged release via `startsWith(github.ref, 'refs/tags/v')`.
 

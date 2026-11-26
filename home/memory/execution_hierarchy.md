@@ -25,6 +25,10 @@ Never run anything directly on the host unless no lower option works. Always use
 - **Track what you start** — note the name/ID of every container or VM before starting it; guarantee it appears in the cleanup step of the same task.
 - Only remove resources created by the current project — never `docker system prune` or broad sweeps.
 - Identify resources by name/label/prefix before removing; if uncertain, list and ask.
+- **List by pattern, remove by exact name** — only containers/instances whose name starts with `{project_name}-`; list them (`docker ps -a --filter "name=^{project_name}-"`, `incus list "^{project_name}-"`), verify every listed name carries the prefix, then stop/delete ONE exact name at a time. Never remove by pattern, never `incus stop --all`, never a delete fed by an unfiltered list.
+- **An exited container is a leak** — it skipped `--rm`; remove it by its exact name.
+- **Never touch shared Incus infrastructure** — images, profiles, networks, storage pools, projects, and custom volumes the test did not create.
+- **Test scripts clean up on every exit path** — `trap cleanup EXIT INT TERM` registered BEFORE the first container/instance starts, removing everything the script started by the exact names it recorded (containers, sidecars, networks, volumes).
 
 ## Instance budget
 
@@ -71,6 +75,18 @@ Rules:
 - The instance name is the primary key for cleanup — record it immediately after launch
 - Never use generic names (`test`, `temp`, `dev`) that cannot be traced to a project
 - In Makefile targets: `SUFFIX=$$(tr -dc 'a-z0-9' </dev/urandom | head -c8)`
+- **Cap every Incus container at launch** — `-c limits.cpu=2 -c limits.memory=4GiB -c limits.cpu.priority=2` (same caps as the Docker `--cpus`/`--memory` limits; the low `limits.cpu.priority` keeps tests from starving the host)
+- **Bound every `incus exec`** with `timeout {seconds}` so a hung command cannot hold the run
+
+## Virtual Machines (QEMU/KVM tier)
+
+A real VM is used only when the test needs its own kernel, firmware, or a cold power cycle (`tests/virt.sh`, OPTIONAL — a project adds it only when a clean OS in a real VM is needed; it is a standalone run, never part of `tests/run_tests.sh`).
+
+- Supported hypervisors: Incus `--vm`, libvirt (`virsh`/`virt-install`), VirtualBox (`VBoxManage`); the script detects what is installed and exits `69` (`EX_UNAVAILABLE`) with the reason on stderr when none is usable or `/dev/kvm` is missing — never `0`
+- Same `{project_name}-XXXX` naming, `trap cleanup EXIT INT TERM`, and count against the instance budget
+- **CPU priority, set right after `create` and before the first test:** libvirt `virsh schedinfo NAME --live --config cpu_shares=$VIRT_CPU_SHARES` (default `256`; `--config` keeps it across the power cycle); VirtualBox `VBoxManage modifyvm NAME --vm-process-priority low`; Incus `--vm` has nothing to set (`limits.cpu.priority` is container-only), the caps are its only limit
+- **Secure Boot is platform specific** (`VIRT_SECUREBOOT=off` turns it off): Incus enforces it by default and needs `-c security.secureboot=false` (plus `-c security.csm=true` for a non-UEFI guest) to disable it; libvirt and VirtualBox default to BIOS firmware, so nothing changes unless a UEFI guest is wanted
+- **Delete:** Incus `incus delete --force NAME`; libvirt `virsh destroy NAME` (ignore a stopped VM) then `virsh undefine NAME --remove-all-storage --nvram`; VirtualBox `VBoxManage controlvm NAME poweroff` (ignore a stopped VM) then `VBoxManage unregistervm NAME --delete`
 
 ## Incus Network Isolation
 
@@ -143,7 +159,7 @@ If the image is not in the registry, do not build it inline — stop and tell th
 ## Docker Run Conventions
 
 - **`docker run` must use `--rm --name {project_name}-XXXX`** — every batch build/one-off/unit-test container must self-remove on exit AND carry a name for targeted cleanup. `XXXX` = random 8-char lowercase alphanumeric suffix (`$(tr -dc 'a-z0-9' </dev/urandom | head -c8)`; in Makefiles: `$$(tr -dc 'a-z0-9' </dev/urandom | head -c8)`). The random suffix makes concurrent runs collision-free, and `docker stop {project_name}-XXXX` / `docker ps --filter name={project_name}-` gives precise cleanup without broad sweeps. Never use `-it` for batch commands (breaks CI — no TTY); `-it` is only for interactive shells. **Exception:** a detached (`-d`/`--detach`) container in a multi-container integration test may omit `--rm` (see "Container / Instance Lifetime" above) — `--name` is still required.
-- **Resource limits on all toolchain containers** — always pass `--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS)` where both vars default to `4g` and `2` respectively (overrideable per project or per machine). When many Claude Code instances each spawn multiple agents that each launch containers, the machine runs out of CPU/memory without per-container caps.
+- **Resource limits on all toolchain containers** — always pass `--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS)` where both vars default to `4g` and `2` respectively (overrideable per project or per machine), plus `--cpu-shares=$(DOCKER_CPU_SHARES)` (default `256`, so a build never starves the host's other work), `--no-healthcheck` (a one-shot build container must not poll the image's service HEALTHCHECK), and a `timeout -k 30 $(DOCKER_TIMEOUT)` prefix (default `3600` seconds) so a hung step never holds a container for hours. One container per Makefile target: the whole sequence runs in one `sh -c`, never a container per step or platform. When many Claude Code instances each spawn multiple agents that each launch containers, the machine runs out of CPU/memory without per-container caps.
 - **Go build cache must be project-scoped** — `GO_BUILD ?= $(HOME)/.cache/go-build/$(PROJECTNAME)`. The Go compile cache (`~/.cache/go-build`) is NOT safe for concurrent writes from separate `go` processes; a shared path across projects causes corruption and stalls. The module download cache (`GO_CACHE = ~/go/pkg/mod`) IS safe to share (Go uses file locking for writes). Rust's sccache and cargo registry are also safe to share; the Cargo target dir is NOT — scope it per project (`CARGO_TARGET ?= $(HOME)/.cache/cargo-target/$(PROJECTNAME)`).
 - **Dev images: rolling tags** — never pinned
 - **Target `linux/amd64` + `linux/arm64`** by default

@@ -430,7 +430,7 @@ Run `govulncheck` (Go) / `cargo audit` (Rust) / `npm audit` (Node) / equivalent 
 
 ## Password Hashing
 
-**Argon2id only** — never bcrypt, never scrypt, never MD5/SHA for passwords.
+**Argon2id only** — never a new bcrypt, scrypt, MD5 or SHA password hash; a legacy bcrypt hash is only verified, then rehashed to Argon2id.
 
 ---
 
@@ -485,14 +485,14 @@ Channels differ ONLY in context, never in steps:
 | Channel | Trigger | Tag / version identity | Prerelease | Retention |
 |---------|---------|------------------------|------------|-----------|
 | Stable | Version tag | Tag is the version | No | Permanent |
-| Beta | Beta branch push | Timestamp-beta tag | Yes | Limited |
-| Devel | Schedule and push to `main`/`master` | Rolling `devel` tag, deleted and recreated each run; version = short commit id | Yes | Rolling |
+| Beta | Push of a `YYYYMMDDHHMMSS-beta` tag | Timestamp-beta tag | Yes | Limited |
+| Devel | Schedule and push to `main` | Rolling `devel` tag, deleted and recreated each run; version = short commit id | Yes | Rolling |
 
 Never fork the pipeline logic per channel — one skeleton, parameterized by context.
 
 On GitLab the rolling `devel` release job needs `GITLAB_TOKEN`: NOT auto-set; a project access token with the `api` scope, added as a MASKED CI/CD variable, used to delete the previous `devel` release and tag through the Releases API.
 
-There is no `devel` or `dev` branch: devel builds come from `main`/`master` only. A pull request runs CI only and never publishes an image or a release; merging is a push to the target branch and triggers that branch's workflows. A stable release is a tag push, never a merge, and release builds use the pushed tag.
+There is no `devel` or `dev` branch: devel builds come from `main` only (there is no `master` and no `beta` branch; a beta is a pushed `YYYYMMDDHHMMSS-beta` tag). A pull request runs CI only and never publishes an image or a release; merging is a push to the target branch and triggers that branch's workflows. A stable release is a tag push, never a merge, and release builds use the pushed tag.
 
 Every workflow (CI and every release channel) must also support an on-demand manual run in addition to its normal trigger, so it can be re-run without a dummy commit — `workflow_dispatch` on GitHub/Gitea/Forgejo; GitLab and Jenkins pipelines are already manually runnable from their own UI with no extra config.
 

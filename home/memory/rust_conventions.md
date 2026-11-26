@@ -64,8 +64,15 @@ Source: `~/Projects/github/dockersrc/rust`. Alpine-based, rolling tag, stable + 
 `BUILD_EPOCH` is the single captured build time (the build date is derived from it); `PLATFORMS` is space-separated; `OFFICIAL_SITE` comes from `site.txt`, else the env var, else empty.
 
 ```makefile
-PROJECT_NAME  := {project_name}
-ORGANIZATION  := {project_org}
+# IDEA.md project variables first (the same source as {project_name}), then the git remote, then the directory path - NEVER hardcode
+PROJECT_NAME  := $(shell sed -n 's/^project_name:[[:space:]]*//p' IDEA.md 2>/dev/null | head -n1 | tr -d '[:space:]')
+ifeq ($(PROJECT_NAME),)
+PROJECT_NAME  := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)$$|\1|; s|\.git$$||' || basename "$$(pwd)")
+endif
+ORGANIZATION  := $(shell sed -n 's/^project_org:[[:space:]]*//p' IDEA.md 2>/dev/null | head -n1 | tr -d '[:space:]')
+ifeq ($(ORGANIZATION),)
+ORGANIZATION  := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+$$|\1|' || basename "$$(dirname "$$(pwd)")")
+endif
 # Local builds only: VERSION env (user override, AI never sets it) > non-empty release.txt > devel rule (short commit id, "devel" outside git)
 VERSION       ?= $(shell v=; [ -r release.txt ] && v=$$(tr -d '[:space:]' < release.txt); if [ -n "$$v" ]; then echo "$$v"; else git rev-parse --short=7 HEAD 2>/dev/null || echo devel; fi)
 COMMIT_ID     := $(shell git rev-parse --short=7 HEAD 2>/dev/null || echo "N/A")
@@ -82,10 +89,12 @@ CARGO_TARGET  ?= $(HOME)/.cache/cargo-target/$(PROJECT_NAME)
 
 DOCKER_MEM  ?= 4g
 DOCKER_CPUS ?= 2
+DOCKER_CPU_SHARES ?= 256
+DOCKER_TIMEOUT ?= 3600
 
-RUST_DOCKER := docker run --rm \
+RUST_DOCKER := timeout -k 30 $(DOCKER_TIMEOUT) docker run --rm --no-healthcheck \
 	--name $(PROJECT_NAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
-	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) \
+	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) --cpu-shares=$(DOCKER_CPU_SHARES) \
 	-e RUSTC_WRAPPER=sccache \
 	-v "$(PWD)":/app \
 	-v $(CARGO_CACHE):/usr/local/share/cargo \
@@ -97,7 +106,7 @@ RUST_DOCKER := docker run --rm \
 ```
 
 - `casjaysdev/rust:latest` rolling tag — never pinned; Alpine-based with stable + nightly toolchains, 30 cross-compile targets, and every common Cargo tool pre-installed
-- `PROJECT_NAME` and `ORGANIZATION` are literal here (not inferred from git); keep in sync with `Cargo.toml`
+- `PROJECT_NAME` and `ORGANIZATION` resolve from IDEA.md project variables, then the git remote, then the directory path (never hardcoded); keep `Cargo.toml` in sync
 - `CARGO_CACHE`, `RUSTUP_CACHE`, and `SCCACHE_CACHE` use `?=` so host env vars (`CARGO_HOME`, `RUSTUP_HOME`, custom XDG paths) are honored; defaults are `~/.cargo`, `~/.rustup`, and `~/.cache/sccache`
 - `CARGO_TARGET ?= $(HOME)/.cache/cargo-target/$(PROJECT_NAME)` mounts the Cargo target dir at `/app/target` — scoped per project because target artifacts are not safe to share across projects, and it keeps `target/` out of the source tree
 - Every target that uses `RUST_DOCKER` must `@mkdir -p $(CARGO_CACHE) $(RUSTUP_CACHE) $(SCCACHE_CACHE) $(CARGO_TARGET)` first so host dirs exist before Docker mounts them and downloaded crates persist across runs
@@ -110,8 +119,10 @@ RUST_DOCKER := docker run --rm \
 
 | Target | What it does |
 |--------|-------------|
-| `build` | Builds all platforms inside Docker; outputs to `binaries/` |
-| `release` | Prepares release archives in `releases/` |
+| `build` | Builds all platforms inside Docker in ONE container (one `sh -c` loop, never a container per platform); outputs to `binaries/` |
+| `release` | Prepares release archives in `releases/`; first prerequisite is `release-check` |
+| `release-check` | Internal helper: exit `78` with `ERROR:` on stderr unless `release.txt` is a stable `X.Y.Z` |
+| `beta` | Tags the clean `main` commit `YYYYMMDDHHMMSS-beta` and pushes the tag; CI publishes the beta |
 | `test` | Runs `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo audit`, then `cargo test --lib --no-fail-fast` inside Docker |
 | `clean` | Removes `binaries/`, `releases/`, and `target/` |
 | `help` | Prints target list and current version |
@@ -148,9 +159,9 @@ RUST_CARGO_VOL   := rust-cargo
 RUST_RUSTUP_VOL  := rust-rustup
 RUST_SCCACHE_VOL := rust-sccache
 
-RUST_DOCKER := docker run --rm \
+RUST_DOCKER := timeout -k 30 $(DOCKER_TIMEOUT) docker run --rm --no-healthcheck \
 	--name $(PROJECT_NAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
-	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) \
+	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) --cpu-shares=$(DOCKER_CPU_SHARES) \
 	-e RUSTC_WRAPPER=sccache \
 	-v "$(PWD)":/app \
 	-v $(RUST_CARGO_VOL):/usr/local/share/cargo \
@@ -190,6 +201,10 @@ test:
 
 Always inside Docker. Never `cargo test` directly on host.
 
+## Thin process entry
+
+`src/main.rs` holds only `main()`: it parses flags, builds the configuration and calls `run(cancel, cfg)`. `run` (startup, signal handling, graceful shutdown) lives in a module that unit tests reach; a test calls it with a cancellation token and a listener on `127.0.0.1:0`, makes one request, cancels, and asserts a clean return. Orchestration left in `main()` counts against the 60% unit gate while only the compiled binary can reach it.
+
 ## Cargo.toml — Release Profile (NON-NEGOTIABLE)
 
 ```toml
@@ -224,7 +239,7 @@ repository  = "https://github.com/{project_org}/{project_name}"
 
 ## Exit Codes
 
-Use standard POSIX / sysexits codes — never invent custom schemes. Full table is in `~/.claude/memory/script_conventions.md`. `--help` and `--version` always exit `0`; signal exits are `128 + signal` (SIGINT=130, SIGTERM=143).
+Use standard POSIX / sysexits codes — never invent custom schemes. Full table and the output-stream rules (errors to stderr, data to stdout) are in `~/.claude/memory/script_conventions.md`. `--help` and `--version` always exit `0`; usage errors exit `2` (`64` is not used); a missing capability exits `69`, bad config `78`; `--status` returns only `0` or `1`; signal exits are `128 + signal` (SIGINT=130, SIGTERM=143).
 
 For Rust, use the `sysexits` crate or define constants locally. `clap` exits `2` on parse errors automatically — do not override this. Use `std::process::ExitCode` (stable since 1.61) over `std::process::exit()` where possible to allow destructors to run.
 

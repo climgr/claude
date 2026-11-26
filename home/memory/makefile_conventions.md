@@ -19,12 +19,15 @@ type: user
 ## Standard Variables (All Languages)
 
 ```makefile
-# Infer from git remote — NEVER hardcode org or project name
-PROJECTNAME := $(shell git remote get-url origin 2>/dev/null | \
-    sed -E 's|.*/([^/]+)(\.git)?$$|\1|' || basename "$$(pwd)")
-PROJECTORG  := $(shell git remote get-url origin 2>/dev/null | \
-    sed -E 's|.*/([^/]+)/[^/]+(\.git)?$$|\1|' || \
-    basename "$$(dirname "$$(pwd)")")
+# IDEA.md project variables first (the same source as {project_name}), then the git remote, then the directory path - NEVER hardcode
+PROJECTNAME := $(shell sed -n 's/^project_name:[[:space:]]*//p' IDEA.md 2>/dev/null | head -n1 | tr -d '[:space:]')
+ifeq ($(PROJECTNAME),)
+PROJECTNAME := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)$$|\1|; s|\.git$$||' || basename "$$(pwd)")
+endif
+PROJECTORG := $(shell sed -n 's/^project_org:[[:space:]]*//p' IDEA.md 2>/dev/null | head -n1 | tr -d '[:space:]')
+ifeq ($(PROJECTORG),)
+PROJECTORG := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+$$|\1|' || basename "$$(dirname "$$(pwd)")")
+endif
 
 # Local builds only: VERSION env (user override, AI never sets it) > non-empty release.txt > devel rule (short commit id, "devel" outside git)
 VERSION       ?= $(shell v=; [ -r release.txt ] && v=$$(tr -d '[:space:]' < release.txt); if [ -n "$$v" ]; then echo "$$v"; else git rev-parse --short=7 HEAD 2>/dev/null || echo devel; fi)
@@ -57,7 +60,9 @@ All projects define these targets (when applicable). All are `.PHONY`.
 | `dev` | Quick single-platform build into a temp dir for local testing |
 | `lint` | Linter/formatter check only (no test suite) |
 | `docker` | Build multi-arch Docker image locally (no push) |
-| `release` | Prepare release archives in `releases/` |
+| `release` | Prepare release archives in `releases/`; first prerequisite is `release-check` |
+| `release-check` | Internal helper, never a workflow entry point: fails with `ERROR:` on stderr and exit `78` unless `release.txt` is a stable `X.Y.Z` (devel ids and prereleases come from CI, never `make release`) |
+| `beta` | Tag the current clean `main` commit `YYYYMMDDHHMMSS-beta` and push the tag; CI builds and publishes the beta (Go/Rust templates) |
 | `clean` | Remove build output — never source, `.git`, or base images |
 
 ---
@@ -65,7 +70,7 @@ All projects define these targets (when applicable). All are `.PHONY`.
 ## `.PHONY` Declaration
 
 ```makefile
-.PHONY: help build test dev lint docker release clean
+.PHONY: help build test dev lint docker release release-check beta clean
 ```
 
 Declare all non-file targets together near the top of the Makefile (or immediately before each target group).
@@ -124,15 +129,23 @@ CACHE_DIR ?= $(HOME)/.cache/{lang}
 # resource limits, overridable
 DOCKER_MEM  ?= 4g
 DOCKER_CPUS ?= 2
+# CPU weight under contention (Docker default 1024): a build never starves the host's other work
+DOCKER_CPU_SHARES ?= 256
+# hard ceiling in seconds for ONE container run, so a hung step never holds a container for hours
+DOCKER_TIMEOUT ?= 3600
 
-LANG_DOCKER := docker run --rm \
+# --no-healthcheck: the toolchain image's service HEALTHCHECK must not poll a one-shot build container
+# timeout -k 30: a hung run is stopped after DOCKER_TIMEOUT seconds and the signal reaches the container
+LANG_DOCKER := timeout -k 30 $(DOCKER_TIMEOUT) docker run --rm --no-healthcheck \
     --name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
-    --memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) \
+    --memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) --cpu-shares=$(DOCKER_CPU_SHARES) \
     -v $(PWD):/app \
     -v $(CACHE_DIR):/root/.cache/{lang} \
     -w /app \
     {lang}:alpine
 ```
+
+**One container per Makefile target.** A target runs its whole sequence (tidy, download, every platform) in ONE `sh -c` container, never a container per step or per platform. `docker buildx` uses the single shared `multiarch-builder` builder, never one builder per project (every builder is a long-lived buildkit container).
 
 ### Cache mount rules (apply to every toolchain container)
 

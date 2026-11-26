@@ -199,7 +199,7 @@ Always set on every HTTP response from a web-facing service:
 
 ### Passwords
 
-- Hash with **Argon2id** — never bcrypt, never MD5/SHA-* alone
+- Hash with **Argon2id** — never a new bcrypt hash (a legacy bcrypt hash is verified, then rehashed), never MD5/SHA-* alone
 - Never store plaintext passwords
 - Never log passwords or raw tokens — hash with SHA-256 before logging if the event must be recorded
 

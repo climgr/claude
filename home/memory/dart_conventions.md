@@ -32,8 +32,15 @@ Library code under `lib/src/`, with `lib/{project_name}.dart` as the single publ
 ## Makefile — Standard Variables
 
 ```makefile
-PROJECTNAME := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)(\.git)?$$|\1|' || basename "$$(pwd)")
-PROJECTORG  := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(\.git)?$$|\1|' || basename "$$(dirname "$$(pwd)")")
+# IDEA.md project variables first (the same source as {project_name}), then the git remote, then the directory path - NEVER hardcode
+PROJECTNAME := $(shell sed -n 's/^project_name:[[:space:]]*//p' IDEA.md 2>/dev/null | head -n1 | tr -d '[:space:]')
+ifeq ($(PROJECTNAME),)
+PROJECTNAME := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)$$|\1|; s|\.git$$||' || basename "$$(pwd)")
+endif
+PROJECTORG := $(shell sed -n 's/^project_org:[[:space:]]*//p' IDEA.md 2>/dev/null | head -n1 | tr -d '[:space:]')
+ifeq ($(PROJECTORG),)
+PROJECTORG := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+$$|\1|' || basename "$$(dirname "$$(pwd)")")
+endif
 
 VERSION    ?= $(shell cat release.txt 2>/dev/null || echo "devel")
 BUILD_DATE := $(shell date +"%a %b %d, %Y at %H:%M:%S %Z")

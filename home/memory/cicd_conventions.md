@@ -77,10 +77,10 @@ Every project must provide the equivalent of three gates on every provider:
 | Provider | Pinning requirement |
 |----------|-------------------|
 | GitHub | `uses: owner/action@{40-char-sha}` — never a tag or branch |
-| GitLab | Docker images pinned by digest: `image: alpine@sha256:{digest}` for production; template `include:` refs pinned to SHA |
+| GitLab | Every third-party `image:`/`services:` entry pinned by digest (`name@sha256:{digest}`, kept current by Renovate `pinDigests`; the one deliberate floating tag is the maintained `casjaysdev/go:latest` toolchain image); template `include:` refs pinned to SHA |
 | Gitea | Same as GitHub (act runner uses the same `uses:` syntax) |
 | Forgejo | Same as GitHub (act runner) |
-| Jenkins | Docker images pinned by digest; shared library versions locked in `Jenkinsfile` |
+| Jenkins | Every agent image pinned by digest (same rule and `casjaysdev/go:latest` exception as GitLab); shared library versions locked in `Jenkinsfile` |
 
 ### Secret Scanning Per Provider
 
@@ -454,11 +454,11 @@ jobs:
 | **VERSION precedence** | CI release = pushed tag with `v` stripped; CI devel = short commit id; CI beta = `YYYYMMDDHHMMSS-beta`; CI never reads `release.txt` or the `VERSION` env var; local Makefile builds = `VERSION` env (user override, AI never sets it) > non-empty `release.txt` > devel rule (short commit id, `devel` outside git) |
 | **Generated text is fully expanded** | Release notes, release names and descriptions, asset names and links, labels and any other text a workflow generates MUST contain real values, never a literal `${VAR}`, `${{ … }}` or a spec placeholder such as `{project_name}`. Shell: build a file with an unquoted heredoc or `printf` (a quoted heredoc is only for text that must stay literal). GitHub/Gitea/Forgejo YAML values use `${{ env.X }}`; shell `${X}` is not expanded there. GitLab keywords outside `script:` (`release:` name, description and assets, `artifacts:paths`) expand only `$VAR` / `${VAR}`, never `${VAR:0:7}` or `${VAR#v}`: compute the value in an upstream job and pass it with a dotenv report. Jenkins: Groovy `"…"` strings interpolate, `'…'` strings do not. Any workflow that builds its own notes or description file runs the guard step below before publishing |
 | **LDFLAGS** | `-s -w -X 'main.Version=...' -X 'main.CommitID=...' -X 'main.BuildEpoch=...' -X 'main.OfficialSite=...'` (BuildDate is derived from BuildEpoch at runtime, not embedded) |
-| **Docker builds on every push** | Any branch push triggers Docker image build |
-| **Docker tags** | Any push → `{commit}`; beta → adds `beta`; tag → `{version}`, `latest`, `YYMM`, `{commit}` |
-| **Devel image is a job in docker.yml** | `:devel` is built from `docker/Dockerfile.dev` by the `build-devel` job inside `docker.yml` (daily schedule `0 4 * * *` + push to `main`/`master` + `workflow_dispatch` on `main`/`master`) — never a separate workflow file, and never by the `build-standard` job |
-| **No devel or dev branch** | Devel builds come from `main` (and `master`); the only branch-push workflows are `main`/`master` and `beta` |
-| **Pull requests and merges** | A pull request runs `ci.yml` only (build, test, lint, coverage, secret scan, workflow policy) — it never publishes an image or a release, and a fork PR receives no secrets. Merging into `main`/`master` is a push to that branch, so it triggers `ci.yml`, `devel.yml` (the rolling `devel` release) and `docker.yml` (the `{commit_id}` image and the `:devel` image). Merging into `beta` triggers `beta.yml`; a stable release is a tag push, never a merge. A PR and its target branch have different refs, so their concurrency groups never cancel each other |
+| **Docker builds on push to main** | A push to `main`, a version tag or a `*-beta` tag triggers the Docker image build; branches are local and temporary, never pushed |
+| **Docker tags** | Push to `main` → `{commit}`; `*-beta` tag → adds `beta`; tag → `{version}`, `latest`, `YYMM`, `{commit}` |
+| **Devel image is a job in docker.yml** | `:devel` is built from `docker/Dockerfile.dev` by the `build-devel` job inside `docker.yml` (daily schedule `0 4 * * *` + push to `main` + `workflow_dispatch` on `main`) — never a separate workflow file, and never by the `build-standard` job |
+| **No devel or dev branch** | Devel builds come from `main` only (there is no `master`); the only branch-push workflows are on `main`, and there is no `beta` branch: a beta is the pushed tag `YYYYMMDDHHMMSS-beta` (`make beta`) |
+| **Pull requests and merges** | A pull request runs `ci.yml` only (build, test, lint, coverage, secret scan, workflow policy) — it never publishes an image or a release, and a fork PR receives no secrets. Merging into `main` is a push to that branch, so it triggers `ci.yml`, `devel.yml` (the rolling `devel` release) and `docker.yml` (the `{commit_id}` image and the `:devel` image). A beta is a pushed `YYYYMMDDHHMMSS-beta` tag and a stable release is a pushed `v*` tag; neither is ever a merge. A PR and its target branch have different refs, so their concurrency groups never cancel each other |
 | **Workflow permissions** | Default to read-only / least privilege; grant write only to the specific release/publish job that needs it |
 | **Use build image — never install tools inline** | Workflows pull `{project_org}/{project_name}:build` for all build/test/lint/scan steps. Never `apk add`, `apt-get`, `go install`, `cargo install`, or any inline tool install in a workflow step. All tooling lives in `docker/Dockerfile.build`, rebuilt monthly |
 | **Workflow portability — no hardcoded values** | Org name, project name, registry, official site: never hardcoded; `OFFICIAL_SITE` is optional in CI — `site.txt` wins, else the `OFFICIAL_SITE` repository secret, else empty (unset means unset, never an invented or `example.com` value), and it is passed into the build as an ldflag/build arg. Use provider-supplied variables so the workflow works after a fork without edits. GitHub: `github.repository_owner` / `github.event.repository.name`. GitLab: `$CI_REGISTRY_IMAGE` / `$CI_PROJECT_NAMESPACE` / `$CI_PROJECT_NAME`. Jenkins: parse from `${env.GIT_URL}` |
@@ -594,7 +594,7 @@ concurrency:
   cancel-in-progress: true
 ```
 
-Branch-push workflows (`main`, `master`, `beta`) cancel older in-progress runs for the same ref; there are no `devel`/`dev` branches. Exception: `release.yml` must NOT cancel in progress — use `cancel-in-progress: false` to prevent a partial publish. `build-toolchain.yml` likewise uses `cancel-in-progress: false` — a toolchain push must not be interrupted mid-push.
+Branch-push workflows (`main`) cancel older in-progress runs for the same ref; there are no `devel`/`dev`/`beta` branches. `beta.yml` and `release.yml` run on tags and need no cancel policy; `release.yml` must NOT cancel in progress — use `cancel-in-progress: false` to prevent a partial publish. `build-toolchain.yml` likewise uses `cancel-in-progress: false` — a toolchain push must not be interrupted mid-push.
 
 ### Caching
 
@@ -644,7 +644,7 @@ Use 7 days for transient build artifacts; 30 days for release staging artifacts 
 
 `ci.yml` must enforce a minimum coverage threshold. The threshold is defined in `{project_dir}/IDEA.md` under `## Business logic`. If not specified, default is 60%. CI must fail when coverage drops below the threshold — a passing build with uncovered code is a silent regression.
 
-**Go:** use `go test -cover -coverprofile="$COVDIR/coverage.out" ./...` then `go tool cover -func="$COVDIR/coverage.out"` to parse the total; fail if below threshold. Always follow the full tempdir convention: `mkdir -p "/tmp/{project_org}"` then `COVDIR=$(mktemp -d "/tmp/{project_org}/{internal_name}-XXXXXX")`. In a CI `container:` job write `COVDIR` to `$GITHUB_ENV` so subsequent steps can read it. In a Makefile `sh -c`, expand `$(PROJECTORG)` and `$(PROJECTNAME)` at Make-time.
+**Go:** collect coverage with `-test.gocoverdir`, never `-coverprofile` (every test process writes its own file, so no shared profile can end up malformed): `mkdir -p "$COVDIR/data"`, `go test -cover ./... -args -test.gocoverdir="$COVDIR/data"`, `go tool covdata textfmt -i="$COVDIR/data" -o="$COVDIR/coverage.out"`, then `go tool cover -func="$COVDIR/coverage.out" | grep '^total:'` to parse the total; fail (message to stderr) if below threshold. Always follow the full tempdir convention: `mkdir -p "/tmp/{project_org}"` then `COVDIR=$(mktemp -d "/tmp/{project_org}/{internal_name}-XXXXXX")`. In a CI `container:` job write `COVDIR` to `$GITHUB_ENV` so subsequent steps can read it. In a Makefile `sh -c`, expand `$(PROJECTORG)` and `$(PROJECTNAME)` at Make-time.
 **Rust:** use `cargo tarpaulin` or `cargo llvm-cov`; fail if below threshold.
 
 ## Security Requirements

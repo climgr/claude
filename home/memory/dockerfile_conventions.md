@@ -312,7 +312,7 @@ Rules:
 - **Same image structure as release** — not a toolchain image; the compiled binary is baked in, not mounted at runtime
 - **Binary runs in debug mode** — pass debug flags via `ENV` or `CMD`; do not change the image structure
 - **`MODE=devel`** — set via `ENV` in `Dockerfile.dev` (not the release `Dockerfile`). The application must accept `dev`, `devel`, and `development` as synonymous valid values for `MODE`
-- **Pushed to the registry** as `{project_org}/{project_name}:devel` — built by a `build-devel` **job inside the same `docker.yml`** workflow that builds the standard image (never a separate `docker-devel.yml` file). `docker.yml`'s `on:` block gains a `schedule: - cron: '0 4 * * *'` trigger alongside its existing push/tag/`workflow_dispatch` triggers; `build-devel` runs on that schedule, `workflow_dispatch` and pushes, but only on `main`/`master` (there is no `devel` or `dev` branch), while `build-standard` runs on every push except the schedule event. One file, shared triggers/env/concurrency group, no duplicated workflow boilerplate. Where an all-in-one image exists (`docker/Dockerfile.aio`), it is *also* a single-file, multi-job workflow (`docker-aio.yml`) — the AIO image is the only image type that gets its own dedicated workflow file, because it is a materially different image (different base, different service composition), not just a different build mode. There is no `Dockerfile.dev.aio` by default, so `docker-aio.yml` normally has no devel job/tag unless a project explicitly adds that variant
+- **Pushed to the registry** as `{project_org}/{project_name}:devel` — built by a `build-devel` **job inside the same `docker.yml`** workflow that builds the standard image (never a separate `docker-devel.yml` file). `docker.yml`'s `on:` block gains a `schedule: - cron: '0 4 * * *'` trigger alongside its existing push/tag/`workflow_dispatch` triggers; `build-devel` runs on that schedule, `workflow_dispatch` and pushes, but only on `main` (there is no `master`, `devel`, `dev` or `beta` branch), while `build-standard` runs on every push except the schedule event. One file, shared triggers/env/concurrency group, no duplicated workflow boilerplate. Where an all-in-one image exists (`docker/Dockerfile.aio`), it is *also* a single-file, multi-job workflow (`docker-aio.yml`) — the AIO image is the only image type that gets its own dedicated workflow file, because it is a materially different image (different base, different service composition), not just a different build mode. There is no `Dockerfile.dev.aio` by default, so `docker-aio.yml` normally has no devel job/tag unless a project explicitly adds that variant
 - **No source mount, no hot-reload** — source is compiled into the image at build time; for live-reload development use the compose dev service with the `:devel` image
 - Starts with `tini → entrypoint.sh → {binary} --debug` (or equivalent debug flag for the project)
 
@@ -358,11 +358,11 @@ jobs:
           file: docker/Dockerfile
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ steps.vars.outputs.sha_short }}
-          # + latest/version/YYMM on tag push, + beta on beta branch push
+          # + latest/version/YYMM on tag push, + beta on a *-beta tag push
 
   build-devel:
     runs-on: ubuntu-26.04
-    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push') && (github.ref == 'refs/heads/main')
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 

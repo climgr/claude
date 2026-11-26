@@ -188,7 +188,7 @@ Report the updated SHA table row(s) back to the caller. Do not commit — the ca
 - **GitHub / Gitea / Forgejo**: every `uses:` must be a 40-char SHA — never `@v4`, `@main`, `@master`
 - **GitLab / Jenkins**: every Docker image must be pinned by digest — never `:latest` in production CI jobs
 - **VERSION in CI**: workflows never read `release.txt` or the `VERSION` env var — release = pushed tag with `v` stripped, devel = `git rev-parse --short=7 HEAD`, beta = `YYYYMMDDHHMMSS-beta`; flag any workflow that reads `release.txt`
-- **No devel/dev branch**: flag `devel`/`dev` branch triggers or `refs/heads/devel|dev` concurrency checks; `:devel` (`build-devel` job in `docker.yml`) runs only on `main`/`master` + schedule + `workflow_dispatch`
+- **No devel/dev branch**: flag `devel`/`dev` branch triggers or `refs/heads/devel|dev` concurrency checks; `:devel` (`build-devel` job in `docker.yml`) runs only on `main` + schedule + `workflow_dispatch`; flag `master` or `beta` branch triggers (a beta is a pushed `*-beta` tag, `docker.yml`/`docker-aio.yml` trigger on `main` only, never all branches)
 - **Generated text fully expanded**: flag release notes, names, descriptions or asset links that can contain a literal `${VAR}`, `${{ … }}` or `{project_name}`; a workflow that builds its own notes file must run the unexpanded-variable guard step; GitLab `release:` keywords take only plain `$VAR` (use a dotenv report for derived values)
 - **OFFICIAL_SITE**: optional in CI (`site.txt`, else repository secret, else empty); flag any invented or `example.com` value
 - **Never use `pull_request_target`** (GitHub/Gitea/Forgejo) for untrusted code paths

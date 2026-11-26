@@ -28,9 +28,15 @@ Source always under `src/` — never at repo root. `package main` entry point is
 ## Makefile — Standard Variables
 
 ```makefile
-# Infer from git remote — NEVER hardcode
-PROJECTNAME := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)(\.git)?$$|\1|' || basename "$$(pwd)")
-PROJECTORG  := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(\.git)?$$|\1|' || basename "$$(dirname "$$(pwd)")")
+# IDEA.md project variables first (the same source as {project_name}), then the git remote, then the directory path - NEVER hardcode
+PROJECTNAME := $(shell sed -n 's/^project_name:[[:space:]]*//p' IDEA.md 2>/dev/null | head -n1 | tr -d '[:space:]')
+ifeq ($(PROJECTNAME),)
+PROJECTNAME := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)$$|\1|; s|\.git$$||' || basename "$$(pwd)")
+endif
+PROJECTORG := $(shell sed -n 's/^project_org:[[:space:]]*//p' IDEA.md 2>/dev/null | head -n1 | tr -d '[:space:]')
+ifeq ($(PROJECTORG),)
+PROJECTORG := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+$$|\1|' || basename "$$(dirname "$$(pwd)")")
+endif
 
 # Local builds only: VERSION env (user override, AI never sets it) > non-empty release.txt > devel rule (short commit id, "devel" outside git)
 VERSION       ?= $(shell v=; [ -r release.txt ] && v=$$(tr -d '[:space:]' < release.txt); if [ -n "$$v" ]; then echo "$$v"; else git rev-parse --short=7 HEAD 2>/dev/null || echo devel; fi)
@@ -55,10 +61,12 @@ GO_BUILD  ?= $(HOME)/.cache/go-build/$(PROJECTNAME)
 
 DOCKER_MEM  ?= 4g
 DOCKER_CPUS ?= 2
+DOCKER_CPU_SHARES ?= 256
+DOCKER_TIMEOUT ?= 3600
 
-GO_DOCKER := docker run --rm \
+GO_DOCKER := timeout -k 30 $(DOCKER_TIMEOUT) docker run --rm --no-healthcheck \
 	--name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
-	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) \
+	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) --cpu-shares=$(DOCKER_CPU_SHARES) \
 	-v $(PWD):/app \
 	-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
 	-v $(GO_BUILD):/usr/local/share/go/cache \
@@ -72,10 +80,12 @@ GO_DOCKER := docker run --rm \
 
 | Target | What it does |
 |--------|-------------|
-| `build` | All 8 platforms + host binary; outputs to `binaries/` |
-| `release` | Prepares release archives in `releases/` |
+| `build` | All 8 platforms + host binary; outputs to `binaries/`; tidy, download and every platform run in ONE container (one `sh -c` loop, never a container per platform) |
+| `release` | Prepares release archives in `releases/`; first prerequisite is `release-check` |
+| `release-check` | Internal helper: exit `78` with `ERROR:` on stderr unless `release.txt` is a stable `X.Y.Z` |
+| `beta` | Tags the clean `main` commit `YYYYMMDDHHMMSS-beta` and pushes the tag; CI publishes the beta |
 | `docker` | Builds multi-arch image locally via `docker buildx --platform linux/amd64,linux/arm64` (no push) |
-| `test` | Runs `go vet ./...`, `govulncheck ./...`, then `go test -v -cover ./...` inside Docker |
+| `test` | Runs `go vet ./...`, `govulncheck ./...`, then `go test -v -cover ./... -args -test.gocoverdir="$COVDIR/data"` inside Docker; the total comes from `go tool covdata textfmt` then `go tool cover -func` (never `-coverprofile`), gate at 60% |
 | `dev` | Quick host-platform-only build into `mktemp` temp dir |
 | `clean` | Removes `binaries/` and `releases/` |
 
@@ -131,9 +141,9 @@ Pre-installed tools:
 GO_CACHE  ?= $(HOME)/go/pkg/mod
 GO_BUILD  ?= $(HOME)/.cache/go-build/$(PROJECTNAME)
 
-GO_DOCKER := docker run --rm \
+GO_DOCKER := timeout -k 30 $(DOCKER_TIMEOUT) docker run --rm --no-healthcheck \
 	--name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
-	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) \
+	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) --cpu-shares=$(DOCKER_CPU_SHARES) \
 	-v $(PWD):/app \
 	-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
 	-v $(GO_BUILD):/usr/local/share/go/cache \
@@ -143,6 +153,7 @@ GO_DOCKER := docker run --rm \
 	casjaysdev/go:latest
 ```
 
+- `DOCKER_CPU_SHARES ?= 256` and `DOCKER_TIMEOUT ?= 3600` (seconds) are declared beside `DOCKER_MEM`/`DOCKER_CPUS`; `--no-healthcheck` keeps the image's service HEALTHCHECK from polling a one-shot build container
 - Always `casjaysdev/go:latest` (rolling tag — never pinned)
 - `CGO_ENABLED=0` and `GOFLAGS=-buildvcs=false` are `casjaysdev/go:latest` image defaults (Docker `ENV`); set explicitly in `GO_DOCKER` for clarity and as a safety net if the image ever changes. `GOTELEMETRY=off`, `GOTOOLCHAIN=auto`, and `GOPROXY=https://proxy.golang.org,direct` are also image defaults — do not set them in templates.
 - `-e GOFLAGS=-buildvcs=false` — **required reason**: when `-v $PWD:/app` mounts `.git` into the container, Git 2.35.2+ rejects it as an "unsafe directory" because the host file owner (UID 1000) differs from the container user (root, UID 0). `go build` calls git internally to stamp VCS info and fails with "exit status 128". `GOFLAGS=-buildvcs=false` suppresses VCS stamping globally for all `go build` and `go test` calls inside the container. This is safe because version info is already embedded via `-X main.Version=...` LDFLAGS.
@@ -187,7 +198,7 @@ Always builds into a temp dir for `dev`, never to a hardcoded path.
 ```makefile
 some-target:
 	@mkdir -p $(GO_CACHE) $(GO_BUILD)
-	@docker run --rm \
+	@timeout -k 30 $(DOCKER_TIMEOUT) docker run --rm --no-healthcheck \
 		--name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
 		-v $(PWD):/app \
 		-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
@@ -201,7 +212,7 @@ Never omit the cache mounts — every invocation that downloads or compiles modu
 
 ## Build Info Variables
 
-Declare in `main.go` as package-level vars set by ldflags:
+Declare in `src/version.go` (the process entry `src/main.go` holds only `main()`, see "Thin process entry") as package-level vars set by ldflags:
 
 ```go
 var (
@@ -219,7 +230,7 @@ Never use `VCS_REF` as an alias — `CommitID` is the canonical name.
 
 ## Registry
 
-Always `ghcr.io/{PROJECTORG}/{PROJECTNAME}` — a release is tagged `:{VERSION}`, `:latest`, `:YYMM` and `:{commit_id}`; any push gets `:{commit_id}` only, a beta adds `:beta`, and `:devel` comes from the separate `build-devel` job in `docker.yml` (built from `Dockerfile.dev`).
+Always `ghcr.io/{PROJECTORG}/{PROJECTNAME}` — a release is tagged `:{VERSION}`, `:latest`, `:YYMM` and `:{commit_id}`; a push to `main` gets `:{commit_id}` only, a `*-beta` tag adds `:beta`, and `:devel` comes from the separate `build-devel` job in `docker.yml` (built from `Dockerfile.dev`).
 
 Docker target uses `docker buildx` with `--platform $(PLATFORMS)` — no `--push`; pushing is CI/CD's responsibility, not the Makefile's. `PLATFORMS` is space-separated, defaults to all 8 OS/arch pairs (linux, darwin, windows, freebsd x amd64, arm64) and is overridable: `make docker PLATFORMS=linux/amd64`.
 
@@ -269,9 +280,17 @@ Never hardcode specific version numbers in spec or template files — they go st
 - **Single static binary** — `go:embed` for assets; zero runtime file deps
 - **Go embed** — assets bundled at build time; binary works air-gapped
 
+## Thin process entry
+
+`src/main.go` holds only `main()`: it parses flags, builds the configuration (copying `Version`, `CommitID`, `BuildEpoch`, `OfficialSite` from `src/version.go`) and calls `run(ctx, cfg) error`. `run` (startup, signal handling, graceful shutdown) lives in a package under `src/` that unit tests reach and that never imports `main`; a test calls it with a cancelable context and a listener on `127.0.0.1:0`, makes one request, cancels, and asserts a clean return. Orchestration left in `main()` counts against the 60% unit gate while only the compiled binary can reach it.
+
+## Optional GUI client
+
+A GUI client (`src/client/gui/`) is a separate, dynamically linked artifact built only for Linux, macOS and Windows, never BSD: `go build -tags gui -o {project_name}-cli-gui-{GOOS}-{GOARCH}[.exe] ./src/client`, uploaded as its own artifact. The default `-cli` binary stays static and pure Go (`CGO_ENABLED=0`).
+
 ## Exit Codes
 
-Use standard POSIX / sysexits codes via `os.Exit(N)` — never invent custom schemes. Full table is in `~/.claude/memory/script_conventions.md`. `--help` and `--version` always exit `0`; signal exits are `128 + signal` (SIGINT=130, SIGTERM=143).
+Use standard POSIX / sysexits codes via `os.Exit(N)` — never invent custom schemes. Full table and the output-stream rules (errors to stderr, data to stdout) are in `~/.claude/memory/script_conventions.md`. `--help` and `--version` always exit `0`; usage errors exit `2` (`64` is not used); a missing capability exits `69`, bad config `78`; signal exits are `128 + signal` (SIGINT=130, SIGTERM=143). `--status` returns only `0` or `1`.
 
 For Go, import `golang.org/x/sys/unix` or define sysexits constants locally — the stdlib does not export them. Never use `log.Fatal` as a substitute for a proper exit code.
 
@@ -443,9 +462,9 @@ Suppress all ANSI output (colors, cursor sequences) when `NO_COLOR` is set or `-
 GO_CACHE  ?= $(HOME)/go/pkg/mod
 GO_BUILD  ?= $(HOME)/.cache/go-build/$(PROJECTNAME)
 
-GO_DOCKER := docker run --rm \
+GO_DOCKER := timeout -k 30 $(DOCKER_TIMEOUT) docker run --rm --no-healthcheck \
 	--name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
-	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) \
+	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) --cpu-shares=$(DOCKER_CPU_SHARES) \
 	-v $(PWD):/app \
 	-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
 	-v $(GO_BUILD):/usr/local/share/go/cache \
@@ -462,7 +481,7 @@ Use `?=` so a host-set `GO_CACHE` or `GO_BUILD` env var (pointing at custom `GOM
 ```makefile
 GO_VOL := go-state
 
-GO_DOCKER := docker run --rm \
+GO_DOCKER := timeout -k 30 $(DOCKER_TIMEOUT) docker run --rm --no-healthcheck \
 	--name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
 	-v $(PWD):/app \
 	-v $(GO_VOL):/usr/local/share/go \

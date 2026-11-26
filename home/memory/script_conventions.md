@@ -486,12 +486,27 @@ Processes killed by a signal exit with `128 + {signal}`:
 ### Rules
 
 - `--help` and `--version` always exit `0`
-- Unknown flag or bad argument: exit `2` (POSIX misuse) or `64` (EX_USAGE) — be consistent within a project
+- Unknown flag or bad argument: exit `2` (the usage code); `64` (`EX_USAGE`) is not used
+- Most specific code wins: `1` is only the fallback for a failure no code below covers
 - Missing required file: exit `66` (EX_NOINPUT)
 - Missing permission: exit `77` (EX_NOPERM)
 - Config file invalid: exit `78` (EX_CONFIG)
 - Never use exit codes outside `0–78` or `128–143` for your own errors — those ranges are reserved
 - Scripts: use bare integer `exit N`; Go: `os.Exit(N)`; Rust: `std::process::exit(N)` or `clap` exit handling
+- `126`, `127` and `128+n` belong to the shell — a program never returns them on purpose
+- Every non-zero exit is preceded by one line on stderr saying what failed (`ERROR: {what failed}` in a script)
+- Check/test scripts: run every check, then exit `1` naming the failure count (a failure is never only printed); exit `69` when the script cannot run here (no Docker, Incus, hypervisor or `/dev/kvm`) with the reason on stderr — never `0`
+- A single check that cannot run in this environment prints `SKIP: {reason}` on stderr and does not fail; an opt-in `REQUIRE_*=1` variable turns that skip into a failure
+- Init scripts (SysV/OpenRC) follow the LSB action codes: `status` returns `0` running and `3` not running; an unknown action prints usage to stderr and returns `2`
+- Container health: `--status` returns only `0` (healthy) or `1` (unhealthy); Docker's `HEALTHCHECK` reserves `2`
+
+### Output streams
+
+- **stdout** carries what the command was asked to produce: requested data, `--help`, `--version`, completions, config dumps, and the normal progress/success lines of a working command
+- **stderr** carries every error, usage error, warning, `SKIP:` reason, and fatal startup failure (`echo "ERROR: ..." >&2`) — never requested data
+- With a machine format (`--output json`) stdout holds ONLY the document, so `cmd | jq` never reads a diagnostic
+- `--help`/`--version` asked for explicitly: stdout, exit `0`; a usage error prints the one-line problem plus a usage hint to stderr and exits `2`
+- Color and emoji only when the stream is a terminal and `NO_COLOR` is unset; a pipe or file always gets plain text
 
 ## CLI Flags and Argument Parsing
 

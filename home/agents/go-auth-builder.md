@@ -5257,7 +5257,7 @@ make build
 make test
 
 # Confirm no raw tokens in DB (sanity)
-# Confirm no bcrypt imports
+# Confirm no bcrypt imports (a legacy-hash verify-then-rehash path for imported users is the only allowed use)
 grep -rn -- "golang.org/x/crypto/bcrypt" "{project_dir}/src" 2>/dev/null | grep -v "_test"
 # Should return nothing
 ```
@@ -5305,7 +5305,7 @@ Non-negotiable rules — must not be changed or removed:
 - Every auth endpoint is rate-limited with a sliding-window per-IP limiter
 - All SQL queries are parameterized; no string concatenation in query construction
 - Session cookies: HttpOnly + Secure + SameSite=Strict always set
-- No bcrypt, scrypt, MD5, or any SHA variant for password storage
+- No new bcrypt, scrypt, MD5, or any SHA variant password hash (a legacy bcrypt hash is only verified, then rehashed to Argon2id)
 ```
 
 ---
@@ -5340,7 +5340,7 @@ PARTs locked (do not modify without re-running go-auth-builder): {PART numbers f
 These rules were established when go-auth-builder scaffolded auth for this project. They must not
 be contradicted by AI.md updates or future template copies.
 
-- Password hashing: **Argon2id only** — never bcrypt, scrypt, or any MD5/SHA variant
+- Password hashing: **Argon2id only** — never a new bcrypt, scrypt, or MD5/SHA variant hash (a legacy bcrypt hash is only verified, then rehashed)
 - Token storage: SHA-256 hex hash only; raw token is single-use and never stored or logged
 - Equality: `subtle.ConstantTimeCompare` on every hash or token comparison — no `==`
 - Anti-enumeration: identical 401 body and always-hash-on-miss regardless of lookup result
@@ -5357,7 +5357,7 @@ cannot silently revert these security decisions.
 
 ## Rules
 
-- **Argon2id only** — never bcrypt, scrypt, MD5/SHA for passwords (time=3, mem=64MiB, threads=4)
+- **Argon2id only** — never a new bcrypt, scrypt, MD5/SHA hash for passwords (a legacy bcrypt hash is only verified, then rehashed) (time=3, mem=64MiB, threads=4)
 - **SHA-256 for tokens** — store only hex hash; raw token shown once then discarded
 - **Constant-time comparison** — `subtle.ConstantTimeCompare` on every hash or token equality check
 - **Identical auth error messages** — `"Invalid credentials"` for wrong password AND no such user

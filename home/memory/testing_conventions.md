@@ -17,7 +17,7 @@ All projects have exactly two test phases. They are distinct in purpose, command
 | Phase | Command | What It Tests | Runs in | Invocation |
 |-------|---------|--------------|---------|------------|
 | **Phase 1 — Toolchain Gate** | `make test` | Source-code logic via the language toolchain (`go test`, `cargo test`, etc.) — unit coverage, validation, error paths | Docker — `casjaysdev/go:latest` or `casjaysdev/rust:latest` | Automatic — required before every commit |
-| **Phase 2 — Binary Validation** | `./tests/run_tests.sh` | Compiled binary behavior — routes, auth flows, CLI/server interaction, service installs, container/Incus scenarios | Docker (`alpine:latest`) or Incus (`debian:latest`) | **Manual only** — developer-initiated |
+| **Phase 2 — Binary Validation** | `./tests/run_tests.sh` (basic tier, Docker only); `incus.sh`, optional `virt.sh` and `e2e.sh` are separate explicit runs | Compiled binary behavior — routes, auth flows, CLI/server interaction, service installs, container/Incus scenarios | Docker (`alpine:latest`), Incus containers (`debian/trixie` + `alpine`), optional Incus VMs | **Manual only** — developer-initiated |
 
 - **Phase 1 is the commit gate** — `make test` must pass before every `gitcommit`. No exceptions.
 - **Phase 2 is manual** — never run automatically; always developer-initiated after a binary is built (`make dev` / `make local`).
@@ -41,12 +41,22 @@ When the user says any of the following, run Phase 2:
 
 | Phrase | Action |
 |--------|--------|
-| "debug binary" / "binary debug" / "binary debug*" | `./tests/run_tests.sh` (auto-detects Incus/Docker) |
-| "test binary" / "binary test" / "binary test*" | `./tests/run_tests.sh` (auto-detects Incus/Docker) |
+| "debug binary" / "binary debug" / "binary debug*" | `./tests/run_tests.sh` (basic tier, Docker only) |
+| "test binary" / "binary test" / "binary test*" | `./tests/run_tests.sh` (basic tier, Docker only) |
 | "run binary tests" | `./tests/run_tests.sh` |
 | "binary validation" / "run phase 2" | `./tests/run_tests.sh` |
 
-Prefer `./tests/incus.sh [systemd|openrc|all]` when Incus is available: `debian/trixie` covers systemd and `alpine/{latest_stable}` covers OpenRC, each exercising the service lifecycle, reboot, Tor and I2P. Fall back to `./tests/docker.sh` (`alpine:latest`) for Docker-only environments. `./tests/run_tests.sh` auto-detects. `./tests/e2e.sh` (Docker + Chromium) is the browser E2E beta test, with and without JS.
+Test script tiers:
+
+| Script | Tier |
+|--------|------|
+| `tests/run_tests.sh` | Basic tier: runs `docker.sh` only, never selects Incus |
+| `tests/docker.sh` | Binary-validation suite in `alpine:latest`: starts, answers, endpoints, CLI, Tor/I2P health; no init system or service lifecycle |
+| `tests/incus.sh [systemd\|openrc\|all]` | Full-app check in Incus CONTAINERS: `debian/trixie` (systemd) + `alpine/{latest_stable}` (OpenRC): the same suite plus service lifecycle, reboot persistence, Tor and I2P |
+| `tests/virt.sh [systemd\|openrc\|all]` | OPTIONAL clean-OS check in real VMs, standalone |
+| `tests/e2e.sh` | Browser E2E (Docker + Chromium), standalone |
+
+`incus.sh`, `virt.sh` and `e2e.sh` are explicit developer runs; fall back to `./tests/docker.sh` where Incus is unavailable. Every operator-token route is tested with five requests in `docker.sh` and `incus.sh` alike (no header `401`, wrong token `401`, owner token `403`, real token `200`, token in the query string `401`), the token is never echoed, and the CLI is tested against the running server with a linked token (exit `0` plus one bad-token failure case).
 
 **Test copies:** `tests/*.sh` may push the binary into a Docker/Incus test container and copy it under another name there (rename test); that copy lives only inside the container, is removed when the test ends, and `binaries/` is never modified. Copying or symlinking a binary anywhere on the host (`/tmp`, `/usr/local/bin`, `releases/` by hand) stays prohibited.
 
@@ -75,7 +85,8 @@ Prefer `./tests/incus.sh [systemd|openrc|all]` when Incus is available: `debian/
 - ✓ Data transformations and business rules
 - ✓ Handler logic using mock requests (`httptest.NewRecorder`) or stubs
 - ✗ Full HTTP requests against a running server
-- ✗ Database operations against a real database
+- ✗ A remote or shared database (libSQL/Turso, any server the test does not start itself)
+- ✓ A local SQLite database the test creates itself (in-memory or in `t.TempDir()`) is a unit test and counts toward coverage
 - ✗ External service calls
 - ✗ Auth flows that require session state
 
