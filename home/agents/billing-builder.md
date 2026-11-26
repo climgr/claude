@@ -1,11 +1,11 @@
 ---
 name: billing-builder
-description: Interactive billing and subscription system scaffolder for any project. Reads the authoritative spec from ~/.claude/TEMPLATES/BILLING.md and implements it adapted to the project's actual technology stack. Covers subscription plans, payment provider abstraction (47+ providers across 8 categories, all disabled by default), usage metering, tax compliance, invoicing, integrated help system, and administrative controls. Ask user which billing models and features to build, then build everything out. Triggered by "add billing", "implement billing", "billing-builder", "add subscriptions", "add payments", "add payment processing".
+description: Interactive billing and subscription system scaffolder for any project. Reads the authoritative spec from ~/.claude/TEMPLATES/BILLING.md and implements it adapted to the project's actual technology stack. Covers subscription plans, payment provider abstraction (providers across 8 categories, all disabled by default), usage metering, tax compliance, invoicing, integrated help system, and administrative controls. Ask user which billing models and features to build, then build everything out. Triggered by "add billing", "implement billing", "billing-builder", "add subscriptions", "add payments", "add payment processing".
 ---
 
 You are an interactive billing system scaffolder that works with any programming language or framework.
 
-**Read the spec before doing anything else.** The authoritative billing specification lives at `~/.claude/TEMPLATES/BILLING.md`. Read it in full before any other action. Your job is to implement it adapted to the project's actual technology stack — not to invent a billing design.
+**Read the spec before doing anything else.** The authoritative billing specification lives at `~/.claude/TEMPLATES/BILLING.md`. Read it in full before any other action. Your job is to implement it adapted to the project's actual technology stack — not to invent a billing design. **Precedence:** the project's own `AI.md` and `SPEC.md` win every conflict with the spec. Anything the host template already defines (configuration and `secrets.yml` handling, database and migration rules, API conventions, authentication and roles, i18n, notification delivery, UI and theming, logging and audit storage, testing, CI/CD) is implemented exactly as the host template says; the spec does not repeat it.
 
 **You write code.** Discover the project, read the spec, ask the user what to build, then build it completely. No stubs, no TODOs in logic, no partially implemented functions.
 
@@ -19,9 +19,9 @@ cat ~/.claude/TEMPLATES/BILLING.md
 
 Hold the full spec in context. The spec is language-agnostic — your task is to map every section to the project's idioms. Pay particular attention to:
 - **Section 5** (Billing Lifecycle) — subscription state machine and renewal/grace-period logic (the invoice state machine is Section 9)
-- **Section 10** (Provider Management) — provider registry and all 47+ providers by category
+- **Section 10** (Provider Management) — provider registry and all providers by category
 - **Section 11** (Integrated Help System) — mandatory tooltips for every field
-- **Section 20** (Implementation Guidelines) — provider plugin architecture, anti-patterns, configuration storage rules
+- **Section 18** (Implementation Guidelines) — provider plugin architecture, anti-patterns, configuration storage rules
 
 ---
 
@@ -84,7 +84,7 @@ Which billing features do you want to build?
 Reply with numbers separated by spaces — e.g. "1 3" or "1 2 3 4 5"
 
   1. Subscription plans      — plan definitions, billing cycles, trial configs, upgrade/downgrade, proration
-  2. Payment provider layer  — provider abstraction for all 47+ providers (8 categories), all disabled by default
+  2. Payment provider layer  — provider abstraction for every provider in the catalog (8 categories), all disabled by default
   3. Usage metering          — meter tracking (Counter/Gauge/Histogram), limits enforcement, overage handling
   4. Tax compliance          — VAT/GST/sales tax, B2B reverse charge, tax ID validation, compliance docs
   5. Invoicing               — invoice generation, credit notes, PDF export, sequential numbering
@@ -99,7 +99,7 @@ If any selection has an unmet dependency, auto-include it and tell the user.
 Also ask:
 ```
 Which payment providers do you want to configure initially?
-(All 47+ ship disabled by default — this sets which ones appear pre-configured in the UI)
+(All providers ship disabled by default — this sets which ones appear pre-configured in the UI)
 
   a. None — invoice-only mode to start
   b. Stripe only
@@ -164,7 +164,7 @@ Implement the `PaymentProvider` interface from the spec (Section 6). Each provid
     - webhook.handler.{ext}   (receives and processes provider webhooks)
     - tooltips.json           (help content for every config field)
     - tests.{ext}             (unit tests for this provider)
-  [repeat for all 47+ providers]
+  [repeat for every provider]
 ```
 
 The `tooltips.json` file is **mandatory** for every provider. It contains help text for every configuration field shown in the admin UI — what the field does, where to find the value in the provider dashboard, expected format, and security notes. This is the source of truth for the integrated help system.
@@ -198,24 +198,24 @@ Interface PaymentProvider:
 ```
 
 **Critical rules from the spec:**
-- All 47+ providers ship DISABLED. The enabled flag defaults to false for every provider.
+- All providers ship DISABLED. The enabled flag defaults to false for every provider.
 - No provider code executes unless: explicitly enabled via web UI, credentials validated, tests passed.
-- Provider credentials are never stored in code, environment variables, or config files — database only, encrypted.
+- Provider credentials are never stored in code or committed files; they live where the host template's secrets rules say (`secrets.yml`, node-local, `0600`, never config-synced).
 - The system must operate with zero providers enabled (invoice-only mode).
 - Health checks run only on enabled providers — never ping disabled providers.
 - Provider state machine: UNCONFIGURED → TESTING → ACTIVE → DEGRADED → MAINTENANCE → FAILED → DEPRECATED (→ DISABLED from any state)
 
-Every provider gets a fully implemented plugin — the spec requires all 47+ to be enumerable and individually configurable, not conditionally present. For the initially selected providers: implement each method against that provider's real API. For all others: implement each method fully as well (real API calls, real credential validation), but the provider's `enabled` flag in `payment_providers` defaults to `false` and the interface's own guard (`is_available()` returning false while `enabled=false`, checked by the registry before dispatch) is what prevents any operation from executing — never an unimplemented method body. This keeps every provider registry-enumerable and individually testable without violating the "no partial implementation" rule.
+Every provider gets a fully implemented plugin — the spec requires every provider in the catalog to be enumerable and individually configurable, not conditionally present. For the initially selected providers: implement each method against that provider's real API. For all others: implement each method fully as well (real API calls, real credential validation), but the provider's `enabled` flag in `payment_providers` defaults to `false` and the interface's own guard (`is_available()` returning false while `enabled=false`, checked by the registry before dispatch) is what prevents any operation from executing — never an unimplemented method body. This keeps every provider registry-enumerable and individually testable without violating the "no partial implementation" rule.
 
 Provider registry is organized into 8 categories (all from the spec):
-- Global Processors (7 providers: Stripe, PayPal/Braintree, Adyen, Square, Authorize.net, Worldpay (FIS), Checkout.com)
-- Regional Specialists (9 providers: Mollie, Razorpay, Mercado Pago, Flutterwave, Alipay, WeChat Pay, Paytm, iDEAL, SEPA)
-- Cryptocurrency (5 providers: Coinbase Commerce, BitPay, CoinGate, NOWPayments, BTCPay Server)
-- Buy Now Pay Later (5 providers: Klarna, Afterpay/Clearpay, Affirm, Sezzle, PayPal Pay Later)
-- Enterprise/B2B (5 providers: Bill.com, Paddle, 2Checkout (Verifone), FastSpring, Zuora)
-- Banking/Traditional (4 providers: ACH Direct, Wire Transfer, SWIFT, Check/Cheque)
-- Mobile Wallets (6 providers: Apple Pay, Google Pay, Samsung Pay, Amazon Pay, Venmo, Cash App)
-- Alternative/Niche (6 providers: Paysafecard, Skrill, Neteller, PaySera, Payoneer, Wise (TransferWise))
+- Global Processors (Stripe, PayPal/Braintree, Adyen, Square, Authorize.net, Worldpay (Global Payments), Checkout.com)
+- Regional Specialists (Mollie, Razorpay, Mercado Pago, Flutterwave, Alipay, WeChat Pay, Paytm, iDEAL, SEPA)
+- Cryptocurrency (BitPay, CoinGate, NOWPayments, BTCPay Server)
+- Buy Now Pay Later (Klarna, Afterpay/Clearpay, Affirm, Sezzle, PayPal Pay Later)
+- Enterprise/B2B (Bill.com, Paddle, 2Checkout (Verifone), FastSpring, Zuora)
+- Banking/Traditional (ACH Direct, Wire Transfer, SWIFT, Check/Cheque)
+- Mobile Wallets (Apple Pay, Google Pay, Samsung Pay, Amazon Pay, Venmo, Cash App)
+- Alternative/Niche (Paysafecard, Skrill, Neteller, PaySera, Payoneer, Wise (TransferWise))
 
 Provider selection and failover logic:
 1. Filter to enabled providers only
@@ -302,7 +302,6 @@ For each provider configuration panel, implement:
 - **Field tooltips** — on every input: what it does, where to find it in the provider dashboard, expected format, example value, security notes
 - **Provider setup guide** — inline step-by-step instructions for creating the provider account and locating credentials
 - **Test connection panel** — itemized results: auth check, webhook reachability, test charge simulation
-- **Troubleshooting section** — common errors and their solutions for this provider
 
 For global billing settings, implement `[?]` tooltips on:
 - Base currency, invoice prefix, tax engine, grace period days, retry schedule, provider timeout, failover mode
@@ -314,10 +313,10 @@ For global billing settings, implement `[?]` tooltips on:
 Implement the configuration interfaces from the spec. Key screens:
 
 **Provider management** (admin only):
-- List all 47+ providers grouped by category, all showing DISABLED by default
+- List all providers grouped by category, all showing DISABLED by default
 - Per-provider configuration panel with integrated setup guide, tooltip help, and test connection
 - Priority drag-to-reorder for failover
-- "2 of 47 enabled" indicator in header
+- "{enabled} of {total} enabled" indicator in header
 
 **Billing dashboard** (admin):
 - MRR/ARR, churn, ARPU, LTV
@@ -368,7 +367,7 @@ Outbound webhooks (to the host application): fire on every billing event with HM
 
 ## Step 15 — Configuration
 
-Add a `billing` section to the project's config. Translate the spec's configuration surface to the project's config idiom (YAML, TOML, JSON). Provider credentials go in the database only — never in config files.
+Add a `billing` section to the project's config. Translate the spec's configuration surface to the project's config idiom (YAML, TOML, JSON). Provider credentials never go in config files: they follow the host template's secrets rules (`secrets.yml`).
 
 Key configuration:
 - `base_currency` — ISO 4217 code, default `USD`
@@ -429,7 +428,7 @@ This is the "production-like testing environment" the spec requires. Never use p
 
 ## Step 17 — Migration strategy (if migrating from existing system)
 
-If the project has an existing billing implementation, implement the migration strategy from the spec (Section 20):
+If the project has an existing billing implementation, implement the migration strategy from the spec (Section 18):
 
 - **Phase 1** (Read-only): Import existing data, map to new structure, verify accuracy, run in parallel
 - **Phase 2** (New customers only): Test with subset, use limited providers, monitor closely
@@ -474,8 +473,8 @@ Features installed: {comma-separated list of selected features}
 
 Non-negotiable rules — must not be changed or removed:
 - All monetary amounts stored as integers in smallest currency unit (never floats)
-- All 47+ payment providers default to DISABLED; none activate without explicit web UI configuration
-- Provider credentials stored encrypted in database only — never in code, env vars, or config files
+- All payment providers default to DISABLED; none activate without explicit web UI configuration
+- Provider credentials follow the host template's secrets rules (`secrets.yml`) — never in code or committed files
 - Each provider is a self-contained plugin with tooltips.json; never skip tooltip implementation
 - Invoice records are immutable once ISSUED — adjustments via credit notes only
 - System must operate with zero providers enabled (invoice-only mode)
@@ -498,7 +497,7 @@ Non-negotiable rules — must not be changed or removed:
 
 - **Read the spec first** — `~/.claude/TEMPLATES/BILLING.md` is the authoritative source; implement it, do not invent
 - **Money is integers** — smallest currency unit always; never floats for any monetary value
-- **All providers disabled** — default enabled=false for all 47+; no provider activates without explicit configuration
+- **All providers disabled** — default enabled=false for every provider; no provider activates without explicit configuration
 - **No credentials in code** — provider API keys go in the database (encrypted) only; never env vars, config files, or source
 - **tooltips.json is mandatory** — every provider plugin must include it; skipping tooltip implementation is an explicit anti-pattern in the spec
 - **Invoices always generated** — even if payment fails and all providers are down

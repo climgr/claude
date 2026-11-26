@@ -16,44 +16,33 @@
 13. [Testing & Validation](#testing--validation)
 14. [Security & Compliance](#security--compliance)
 15. [Failure Handling & Recovery](#failure-handling--recovery)
-16. [Audit & Logging](#audit--logging)
-17. [Integration Points](#integration-points)
-18. [AI Development Guidelines](#ai-development-guidelines)
-19. [Implementation Guidelines](#implementation-guidelines)
-20. [Appendix](#appendix)
+16. [Implementation Guidelines](#implementation-guidelines)
+17. [Appendix](#appendix)
+18. [Critical Implementation Notes](#critical-implementation-notes)
 
 ---
 
 ## 🎯 Purpose & Scope
 
 ### Purpose
-This specification defines a complete notification system designed to be integrated into any type of project—web applications, APIs, microservices, enterprise systems, or IoT platforms. It provides multi-channel notification delivery with 30+ channels (all disabled by default except SMTP on successful test), template management, user preferences, and comprehensive delivery guarantees.
+This is a feature template: the notification domain specification (channel catalog, SMTP behavior, delivery lifecycle, templates, routing, user preferences, failure handling) applied INTO an existing project by the `notifications-builder` agent. It is an optional, machine-level reference that informs the project's `SPEC.md` notification contract.
 
-### Scope
-- **Language/Framework Agnostic**: Implementable in any programming language
-- **Database Agnostic**: Works with any storage system
-- **Transport Agnostic**: Supports any communication protocol
-- **Deployment Agnostic**: Cloud, on-premise, edge, or hybrid
-- **Scale Agnostic**: Single user to millions of recipients
+### Precedence
+The project's own `AI.md` (its project template) and `SPEC.md` win every conflict. This file never redefines what the host template already owns: configuration and `secrets.yml` handling, database and migration rules, API conventions, authentication and roles, i18n, UI and theming, logging and audit storage, testing, CI/CD and release. Where this file and the host template overlap, follow the host template and do not copy its text here, so there is one place to maintain each rule.
 
 ### What This Specification Defines
-- Notification channels and their configuration
+- Notification channels, their states and configuration surface
 - Delivery state machines and guarantees
 - Template system and customization
 - User preference management
-- Administrative controls
-- Security and compliance requirements
-- Failure handling and recovery
-- Integrated help and documentation
+- Routing, deduplication, rate limiting and retry
+- Channel failure handling and recovery
 
 ### What This Specification Does NOT Define
-- Specific API endpoints or routes
-- Database schemas or table structures
-- Message queue implementations
-- Specific encryption algorithms
-- Visual design or UI layouts
-- Third-party service credentials
-- Cron expressions or scheduling syntax
+- API endpoints, database schemas or message queue implementations
+- Encryption algorithms, scheduling syntax, visual design or UI layouts
+- Third-party credentials: they follow the host template's secrets rules, never code or committed files
+- Language, framework, or deployment
 
 ---
 
@@ -116,7 +105,7 @@ This specification defines a complete notification system designed to be integra
 
 ```
 Notification System
-├── Channel Manager (30+ channels, all disabled by default)
+├── Channel Manager (all channels disabled by default)
 ├── Template Engine (per-channel templates)
 ├── Delivery Engine (state machine, retries)
 ├── Queue System (priority, deduplication)
@@ -164,7 +153,7 @@ User Preferences
 
 ### Channel Overview
 
-**CRITICAL**: All 30+ notification channels ship DISABLED by default. Each must be explicitly configured via the admin UI (which writes the config files). SMTP is re-tested every startup; failure disables email, logs a warning, and retries next start.
+**CRITICAL**: All notification channels ship DISABLED by default. Each must be explicitly configured via the admin UI (which writes the config files). SMTP is re-tested every startup; failure disables email, logs a warning, and retries next start.
 **EXCEPTION**: SMTP automatically enables upon successful test connection.
 
 ### Available Channels by Category
@@ -173,7 +162,7 @@ User Preferences
 ```yaml
 SMTP:
   - Universal email protocol
-  - 30+ provider presets
+  - Provider presets
   - Auto-enables on successful test
   - Custom configuration support
   - Local server auto-detection
@@ -1053,41 +1042,12 @@ User Preferences:
 
 ## 👨‍💼 Administrative Controls
 
-### Dashboard Overview
-
-```
-Notification System Dashboard
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Statistics (Last 24 Hours):
-├── Sent: 12,456
-├── Delivered: 12,001 (96.3%)
-├── Failed: 455 (3.7%)
-├── Pending: 234
-└── Retry Queue: 89
-
-Channel Health:
-├── ✓ Email (SMTP) - Auto-enabled
-├── ✓ Slack - Healthy
-├── ⚠ SMS - Degraded (rate limited)
-├── ✗ Discord - Failed (invalid webhook)
-└── ○ 26 channels disabled
-
-Top Events:
-1. User Login (4,234)
-2. Password Reset (892)
-3. System Alert (445)
-[View All]
-
-[Manage Channels] [View Logs] [Settings]
-```
-
 ### Channel Management
 
 ```
 Channel Management
 ━━━━━━━━━━━━━━━━━
-Total Available: 30 channels
+Total Available: {N} channels
 Currently Enabled: 4 (including auto-enabled SMTP)
 
 Quick Actions:
@@ -1106,37 +1066,6 @@ Channel List:
 └─────────────────────────────────────┘
 *Auto-enabled on successful test
 ```
-
-### Global Settings
-
-```
-Global Configuration
-━━━━━━━━━━━━━━━━━━
-System Settings:
-├── Default Priority: [Normal ▼]
-├── Retry Attempts: [3]
-├── Queue Size: [10000]
-├── TTL: [24] hours
-└── Dead Letter Action: [Alert Admin ▼]
-
-Features:
-☑ Enable notifications
-☑ Allow user preferences
-☑ Deduplication
-☑ Rate limiting
-☐ Digest mode
-☑ Audit logging
-
-Compliance:
-☑ GDPR compliant
-☑ Include unsubscribe
-☑ Honor quiet hours
-☑ Log retention: [90] days
-
-[Save Settings]
-```
-
----
 
 ## 📚 Integrated Help System
 
@@ -1186,38 +1115,6 @@ Every field includes [?] tooltips:
 │ 
 │ [View Video Tutorial] [Slack Docs ↗]
 └──────────────────────────────────────
-```
-
-### Troubleshooting Wizard
-
-```
-Notification Troubleshooting
-━━━━━━━━━━━━━━━━━━━━━━━━━
-
-What's the issue?
-○ Notifications not sending
-● Channel configuration failing
-○ Delayed notifications
-○ Wrong recipients
-○ Template problems
-
-Which channel? [Slack ▼]
-
-Error Message:
-[Invalid webhook URL___________]
-
-[Diagnose Problem]
-
-Diagnosis:
-⚠️ Webhook URL format is incorrect
-
-Solution:
-1. Webhook should start with https://hooks.slack.com/
-2. Check for extra spaces or characters
-3. Regenerate webhook if needed
-4. Test with curl command below:
-
-[Copy Test Command] [Try Again]
 ```
 
 ### Provider Comparison
@@ -1358,83 +1255,6 @@ Rotation:
   - Rollback capability
 ```
 
-### Privacy Compliance
-
-#### GDPR Requirements
-```
-Data Protection:
-  - Explicit consent for marketing
-  - Right to erasure (delete all prefs)
-  - Data portability (export prefs)
-  - Privacy by design
-  - Audit trail of consent
-  
-Unsubscribe:
-  - One-click unsubscribe
-  - Immediate effect
-  - Confirmation message
-  - Preference center link
-```
-
-#### Regional Compliance
-```yaml
-CAN-SPAM (US):
-  - Physical address required
-  - Clear identification
-  - Opt-out mechanism
-  - 10-day processing
-  
-CASL (Canada):
-  - Express consent required
-  - Unsubscribe in all messages
-  - Contact information
-  
-PECR (UK):
-  - Soft opt-in allowed
-  - Clear sender identity
-  - Valid unsubscribe
-```
-
-### Security Measures
-
-#### Access Control
-```
-Authentication:
-  - Multi-factor for admin
-  - Session management
-  - IP restrictions (optional)
-  - API key rotation
-  
-Authorization:
-  - Granular permissions
-  - Team-based access
-  - Channel-specific rights
-  - Audit requirements
-```
-
-#### Threat Protection
-```yaml
-Rate Limiting:
-  - Per-user limits
-  - Per-IP limits
-  - Per-channel limits
-  - DDoS protection
-  
-Input Validation:
-  - Template injection prevention
-  - XSS protection
-  - SQL injection prevention
-  - Command injection prevention
-  
-Monitoring:
-  - Anomaly detection
-  - Suspicious pattern alerts
-  - Failed auth tracking
-  - Audit log analysis
-```
-
----
-
 ## 🚨 Failure Handling & Recovery
 
 ### Channel Failure Handling
@@ -1526,250 +1346,6 @@ Recovery Process:
   4. Process queued messages
   5. Resume normal operation
 ```
-
----
-
-## 📊 Audit & Logging
-
-### Audit Trail
-
-#### Logged Events
-```yaml
-Configuration Changes:
-  - Channel enabled/disabled
-  - Credential updates
-  - Template modifications
-  - Rule changes
-  - User preference updates
-  
-Delivery Events:
-  - Notification created
-  - Queue operations
-  - Delivery attempts
-  - Success/failure
-  - Retries
-  
-Security Events:
-  - Login attempts
-  - Permission changes
-  - Credential access
-  - Failed authentications
-  - Suspicious activities
-```
-
-#### Log Format
-```json
-{
-  "timestamp": "2024-01-15T10:30:00Z",
-  "event_type": "notification.sent",
-  "channel": "slack",
-  "recipient": "user_123",
-  "status": "success",
-  "metadata": {
-    "message_id": "msg_abc123",
-    "priority": "high",
-    "retry_count": 0,
-    "delivery_time_ms": 245
-  },
-  "actor": "system",
-  "ip_address": "10.0.0.1"
-}
-```
-
-### Reporting
-
-#### Delivery Reports
-```
-Delivery Report
-━━━━━━━━━━━━━━
-Period: Last 7 Days
-
-Summary:
-├── Total Sent: 84,234
-├── Delivered: 81,456 (96.7%)
-├── Failed: 2,778 (3.3%)
-└── Pending: 145
-
-By Channel:
-├── Email: 45,234 (98.2% success)
-├── Slack: 23,456 (97.1% success)
-├── SMS: 12,344 (94.5% success)
-└── Discord: 3,200 (91.2% success)
-
-Top Failures:
-1. Rate limit exceeded (1,234)
-2. Invalid credentials (567)
-3. Network timeout (234)
-
-[Export CSV] [View Details]
-```
-
-#### Analytics Dashboard
-```yaml
-Metrics Tracked:
-  - Delivery rate by channel
-  - Average delivery time
-  - Retry success rate
-  - Channel availability
-  - User engagement rates
-  - Template performance
-  - Cost per channel (SMS)
-  
-Visualizations:
-  - Time series graphs
-  - Channel comparison
-  - Geographic distribution
-  - Event type breakdown
-  - Failure analysis
-```
-
----
-
-## 🔌 Integration Points
-
-### Event Integration
-
-#### Event Sources
-```yaml
-Application Events:
-  - User actions
-  - System events
-  - Scheduled tasks
-  - External triggers
-  - API calls
-  
-Event Format:
-  type: "event.type"
-  priority: "high"
-  recipients: ["user_id", "group_id"]
-  data: 
-    title: "Event Title"
-    message: "Event message"
-    metadata: {}
-  options:
-    channels: ["email", "slack"]
-    schedule: "2024-01-15T10:00:00Z"
-    ttl: 3600
-```
-
-### API Design
-
-#### RESTful Endpoints (Example Structure)
-```yaml
-Notifications:
-  POST /notifications - Send notification
-  GET /notifications/:id - Get status
-  DELETE /notifications/:id - Cancel
-  
-Channels:
-  GET /channels - List all channels
-  GET /channels/:type - Get channel config
-  PUT /channels/:type - Update config
-  POST /channels/:type/test - Test channel
-  
-Preferences:
-  GET /preferences - Get user preferences
-  PUT /preferences - Update preferences
-  POST /preferences/unsubscribe - Opt out
-  
-Templates:
-  GET /templates - List templates
-  GET /templates/:id - Get template
-  PUT /templates/:id - Update template
-  POST /templates/test - Test render
-```
-
-### Webhook Integration
-
-#### Incoming Webhooks
-```yaml
-Status Webhooks:
-  - Delivery confirmation
-  - Failure notification
-  - Bounce handling
-  - Unsubscribe events
-  
-Format:
-  POST /webhooks/[provider]/[event]
-  Headers:
-    X-Signature: HMAC-SHA256
-    X-Event-Type: delivery.success
-  Body:
-    Standardized event payload
-```
-
----
-
-## 🤖 AI Development Guidelines (DEVELOPMENT ONLY)
-
-### ⚠️ CRITICAL: AI is for Development, NOT Required in Production
-
-**AI tools are used ONLY during development to:**
-- Generate channel integrations
-- Create notification templates
-- Build retry logic
-- Generate test cases
-- Create documentation
-
-**The production system:**
-- May or may not use AI (implementation choice)
-- All notification routing is rule-based
-- Channel selection is deterministic
-- No AI required for operation
-
-### Using AI Development Tools
-
-#### Initial Setup with AI
-```bash
-# Example using Claude Code
-$ claude-code "Implement notification system with:
-  - 30+ channels (all disabled except SMTP on test)
-  - Configuration in server.yml / yaml.d / secrets.yml, written by the admin UI
-  - Integrated help system
-  - Template management
-  - User preferences"
-```
-
-#### Channel Integration Generation
-```bash
-# Generate channel integration
-$ claude-code "Create Slack notification channel:
-  - Webhook support
-  - Rich formatting
-  - Attachment support
-  - Thread replies
-  - Retry logic
-  - Test functionality"
-
-# Generate all channel stubs
-$ claude-code "Generate integration stubs for all 30 channels"
-```
-
-#### Template Generation
-```bash
-# Generate responsive email template
-$ claude-code "Create email template with:
-  - Responsive HTML
-  - Plain text fallback
-  - Variable substitution
-  - Unsubscribe link"
-```
-
-### AI Best Practices
-
-**DO:**
-- Use AI to generate boilerplate channel integrations
-- Have AI create comprehensive test suites
-- Let AI generate template variations
-- Use AI for documentation generation
-- Generate retry logic patterns
-
-**DON'T:**
-- Rely on AI for routing decisions in production
-- Use AI for credential management
-- Let AI determine security policies
-- Generate production credentials with AI
-- Use AI for compliance decisions
 
 ---
 
@@ -1903,47 +1479,7 @@ interface NotificationChannel {
 }
 ```
 
-### Testing Strategy
-
-#### Required Tests
-```yaml
-Unit Tests:
-  - Channel integrations
-  - Template rendering
-  - Retry logic
-  - Rate limiting
-  
-Integration Tests:
-  - Channel delivery
-  - Queue processing
-  - Preference management
-  - API endpoints
-  
-End-to-End Tests:
-  - Complete notification flow
-  - Multi-channel delivery
-  - Failure scenarios
-  - User preference flow
-```
-
----
-
 ## 📋 Appendix
-
-### Channel Quick Reference
-
-#### Channel Categories
-- **Email**: 1 channel (SMTP - auto-enables on test)
-- **Team Communication**: 6 channels
-- **Instant Messaging**: 8 channels  
-- **Mobile Push**: 5 channels
-- **Incident Management**: 4 channels
-- **SMS/Voice**: 4 channels
-- **Generic**: 2 channels
-
-**Total Available**: 30 channels
-**Default Enabled**: 0 (SMTP auto-enables on successful test)
-**Configuration Method**: `server.yml` / `yaml.d/` / `secrets.yml`, written by the admin UI; `SMTP_*` env vars override
 
 ### State Diagrams
 
@@ -1982,24 +1518,9 @@ NOTIF-009: Queue full
 NOTIF-010: TTL expired
 ```
 
-### Glossary
-
-- **Channel**: A communication method (email, Slack, SMS, etc.)
-- **Template**: Message format for a channel
-- **TTL**: Time-to-live for a notification
-- **DLQ**: Dead letter queue for failed messages
-- **Webhook**: HTTP callback for events
-- **Deduplication**: Preventing duplicate notifications
-- **Quiet Hours**: User's do-not-disturb period
-- **Failover**: Switching to backup channel
-- **Rate Limiting**: Controlling message frequency
-- **Batching**: Grouping notifications for efficiency
-
----
-
 ## 📝 Critical Implementation Notes
 
-1. **All Channels Disabled by Default**: System ships with 30+ channels, ALL disabled
+1. **All Channels Disabled by Default**: System ships with the full channel catalog, ALL disabled
 2. **SMTP Auto-Enables on Test**: Unique behavior - SMTP enables automatically on successful test
 3. **SMTP Environment Variables**: Optional support for standard SMTP env vars (override file values)
 4. **Files Are the Source of Truth**: env vars override files; the admin UI writes the owning area file
@@ -2025,6 +1546,6 @@ NOTIF-010: TTL expired
 
 *This specification is designed to be completely implementation-agnostic and can be adapted to any technology stack, messaging requirements, or deployment environment. The notification system should integrate with your existing application while maintaining clear boundaries and separation of concerns.*
 
-*All 30+ notification channels are available but disabled by default (except SMTP which auto-enables on successful test). Configuration lives in `server.yml` / `yaml.d/` / `secrets.yml`, written by the admin UI with integrated help and tooltips. SMTP uniquely supports `SMTP_*` environment variables (SMTP_HOST, SMTP_PORT, etc.) that override file values. No external documentation is required for channel setup.*
+*Feature template: the project's own `AI.md` and `SPEC.md` win every conflict. All notification channels are available but disabled by default (except SMTP which auto-enables on successful test). Configuration lives in `server.yml` / `yaml.d/` / `secrets.yml`, written by the admin UI with integrated help and tooltips. SMTP uniquely supports `SMTP_*` environment variables (SMTP_HOST, SMTP_PORT, etc.) that override file values. No external documentation is required for channel setup.*
 
 *AI tools can assist in development but are not required for production operation. The core notification logic is deterministic and does not require any machine learning or AI to function.*

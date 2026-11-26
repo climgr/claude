@@ -5,48 +5,39 @@
 2. [Core Design Principles](#core-design-principles)
 3. [User Roles & Permissions](#user-roles--permissions)
 4. [Support Agent System](#support-agent-system)
-5. [Bot Automation System](#bot-automation-system)
+5. [Bot Automation System (Logic-Based, No AI/ML)](#bot-automation-system-logic-based-no-aiml)
 6. [Ticket Lifecycle](#ticket-lifecycle)
 7. [Live Chat System](#live-chat-system)
 8. [Knowledge Base](#knowledge-base)
 9. [Notifications](#notifications)
 10. [Security & Access Control](#security--access-control)
 11. [Configuration Management](#configuration-management)
-12. [Mobile & Accessibility](#mobile--accessibility)
-13. [Audit & Compliance](#audit--compliance)
-14. [Integration Points](#integration-points)
-15. [AI Integration Guidelines](#ai-integration-guidelines)
-16. [Implementation Guidelines](#implementation-guidelines)
-17. [Appendix](#appendix)
+12. [Audit & Compliance](#audit--compliance)
+13. [Implementation Guidelines](#implementation-guidelines)
+14. [Appendix](#appendix)
+15. [Key Implementation Notes](#key-implementation-notes)
 
 ---
 
 ## 🎯 Purpose & Scope
 
 ### Purpose
-This specification defines a complete support system designed to be integrated into any type of project—SaaS applications, hosting platforms, self-hosted tools, enterprise systems, or web applications. It provides structured ticket management, intelligent bot pre-screening with built-in patterns that work out-of-the-box, live chat capabilities, and comprehensive admin oversight.
+This is a feature template: the support domain specification (ticket lifecycle, support agents and roles, deterministic bot pre-screening, live chat, knowledge base, SLA) applied INTO an existing project by the `support-builder` agent. It is an optional, machine-level reference that informs the project's `SPEC.md` support contract.
 
-### Scope
-- **Language/Framework Agnostic**: Implementable in any programming language or framework
-- **Database Agnostic**: Works with any database system (SQL or NoSQL)
-- **Authentication Agnostic**: Integrates with any existing auth system
-- **Deployment Agnostic**: Cloud, on-premise, or hybrid deployments
-- **Scale Agnostic**: Single user to enterprise-scale operations
+### Precedence
+The project's own `AI.md` (its project template) and `SPEC.md` win every conflict. This file never redefines what the host template already owns: configuration and `secrets.yml` handling, database and migration rules, API conventions, authentication and roles, i18n, UI and theming, logging and audit storage, testing, CI/CD and release. Where this file and the host template overlap, follow the host template and do not copy its text here, so there is one place to maintain each rule.
 
 ### What This Specification Defines
-- Behavioral requirements and user flows
-- Data structures and relationships
-- Security and access control rules
-- User interface requirements and interactions
-- Integration points and APIs
-- Configuration options and constraints
+- Ticket states, transitions and data structures
+- Support roles, agent mode and availability
+- Logic-based bot pre-screening
+- Live chat and knowledge base behavior
+- SLA and escalation rules
+- Support-specific notices and data access rules
 
 ### What This Specification Does NOT Define
-- Specific programming languages or frameworks
-- Database schemas or table structures
-- API endpoint URLs, paths, or naming conventions
-- File system paths or directory structures
-- Visual design, colors, or branding
+- Programming language, framework, database schemas or API endpoint URLs
+- File system paths, visual design or branding
 - Specific third-party service integrations
 - Internal implementation details
 
@@ -411,9 +402,9 @@ The actual format depends on your tech stack - could be:
 
 The bot uses two layers of patterns:
 1. **Universal Patterns** (Built-in) - Work for any project
-2. **Project Patterns** (AI-Generated at build time) - Specific to your codebase
+2. **Project Patterns** (generated at build time from the codebase) - Specific to your project
 
-When using AI tools like Claude Code during implementation, the AI will:
+At build time the pattern generator will:
 - Keep all universal patterns as the foundation
 - Scan your project for specific errors, endpoints, features
 - Generate additional patterns unique to your system
@@ -569,7 +560,7 @@ Bot: "I understand this issue needs human attention. I'll help you create a
 
 ### Optional Admin Overrides
 
-While the system works out-of-the-box with built-in patterns (and AI-generated patterns if using AI tools), admins can optionally:
+While the system works out-of-the-box with built-in patterns (and project patterns generated at build time), admins can optionally:
 - **Disable** specific built-in patterns (not modify them)
 - **Add** organization-specific patterns for unique features
 - **Set** category priorities
@@ -1058,48 +1049,6 @@ Articles written in Markdown format with:
 
 ## 📬 Notifications
 
-### Notification Channels
-
-#### 1. Email Notifications
-**Templates Location**: Configured via Web UI
-**Sending Triggers**: Real-time or batched
-**Required Templates**:
-- Ticket created confirmation
-- Agent response
-- Ticket resolved
-- Chat transcript
-- Password reset
-- SLA warning
-
-**Template Variables**: catalog-only (channel-agnostic); actual delimiter
-syntax is per-channel/per-engine. When the host project already ships an
-email-template engine (Go/Rust `SERVER.md`/`API.md`/`HYBRID.md` § EMAIL &
-NOTIFICATIONS), defer to it — that engine uses plain `{variable}` string
-substitution only, not Handlebars-style `{{variable}}`:
-```
-{user_name} - Recipient name
-{ticket_id} - Ticket identifier
-{ticket_title} - Ticket subject
-{agent_name} - Responding agent
-{response_content} - Latest message
-{ticket_link} - Direct link to ticket
-{unsubscribe_link} - Opt-out link
-```
-
-#### 2. In-App Notifications
-**Display**: Badge counter + dropdown
-**Persistence**: Until marked read
-**Types**:
-- New response on ticket
-- Ticket status change
-- Chat request
-- System announcements
-
-#### 3. Browser Push (Optional)
-**Requires**: User permission
-**When**: Immediate for urgent items
-**Content**: Brief with action link
-
 ### Notification Rules
 
 #### User Preferences
@@ -1120,20 +1069,6 @@ Configurable per user:
 ---
 
 ## 🔐 Security & Access Control
-
-### Authentication Integration
-
-#### Supported Methods
-1. **Session-based**: Existing app sessions
-2. **Token-based**: JWT, OAuth tokens
-3. **SSO**: SAML, OpenID Connect
-4. **API Keys**: For external integrations
-
-#### Session Management
-- Support sessions inherit main app timeout
-- Separate "remember me" for support mode
-- Force re-auth for sensitive operations
-- Concurrent session limits (optional)
 
 ### Data Access Controls
 
@@ -1168,49 +1103,6 @@ Admin           N/A    |   Yes    |     No     |    Yes
 - Passwords never in tickets
 - Attachments virus-scanned
 - Data retention policies enforced
-
-### Rate Limiting
-
-#### Configurable Limits
-```yaml
-Guest:
-  ticket_create: "3 per hour"
-  kb_search: "30 per minute"
-  file_upload: "10 MB per file"
-
-User:
-  ticket_create: "10 per hour"
-  chat_messages: "60 per minute"
-  file_upload: "25 MB per file"
-
-Agent:
-  no_limits_in_support_mode: true
-  normal_user_limits_otherwise: true
-```
-
-### Audit Logging
-
-#### Events Logged
-- All ticket state changes
-- Agent actions
-- Configuration changes
-- Failed authentication
-- Permission changes
-- Data exports
-- Bulk operations
-- Bot interactions
-
-#### Log Format
-Structured logging with:
-- Timestamp
-- Event type
-- Actor
-- Target
-- Details
-- IP address
-- User agent
-
----
 
 ## ⚙️ Configuration Management
 
@@ -1344,56 +1236,6 @@ When agents select canned responses:
 
 ---
 
-## 📱 Mobile & Accessibility
-
-### Responsive Design
-
-#### Breakpoints
-- Mobile: 320px - 768px
-- Tablet: 769px - 1024px
-- Desktop: 1025px+
-
-#### Mobile Optimizations
-- Touch-friendly buttons (min 44x44px)
-- Swipe gestures for ticket actions
-- Bottom sheet for quick actions
-- Simplified navigation
-- Offline mode with sync
-- Reduced data mode option
-- Non-sticky support mode banner
-
-### Accessibility Standards
-
-#### WCAG 2.1 AA Compliance
-- Color contrast ratios (4.5:1 minimum)
-- Focus indicators visible
-- Skip navigation links
-- Semantic HTML structure
-- ARIA labels and roles
-- Error messages associated with inputs
-
-#### Keyboard Navigation
-```
-Tab         - Next element
-Shift+Tab   - Previous element
-Enter       - Activate button/link
-Space       - Check box, button
-Arrow keys  - Radio buttons, menus
-Escape      - Close modal/dropdown
-/ key       - Focus search
-? key       - Show keyboard shortcuts
-```
-
-#### Screen Reader Support
-- Announce status changes
-- Describe form requirements
-- Read error messages
-- Indicate required fields
-- Provide context for links
-- Alternative text for images
-
----
-
 ## 📊 Audit & Compliance
 
 ### Data Retention
@@ -1418,308 +1260,9 @@ Attachments:
   orphaned: "30 days"
 ```
 
-### Privacy Compliance
-
-#### GDPR Features
-- Right to access (export user data)
-- Right to deletion (purge user data)
-- Consent management
-- Data portability (JSON export)
-- Privacy policy acceptance tracking
-- Cookie consent for guests
-
-#### Data Export Format
-Standardized export format for user data requests, including:
-- User profile
-- All tickets
-- Chat transcripts
-- Attachments
-- Activity history
-
-### Compliance Reports
-
-Available via Admin Dashboard:
-- Agent activity summaries
-- SLA compliance percentages
-- Response time averages
-- Resolution rates
-- User satisfaction scores
-- Audit log extracts
-- Data retention compliance
-
----
-
-## 🔌 Integration Points
-
-*Note: All endpoints, paths, and integration methods described here are examples. Actual implementations should define their own URLs, paths, and protocols based on their architecture and requirements.*
-
-### Incoming Integrations
-
-#### Required API Capabilities
-The system must expose endpoints for:
-- Create ticket programmatically
-- Retrieve ticket status
-- Add reply to existing ticket
-- Query ticket list (optional)
-- Update ticket metadata (optional)
-
-#### Authentication Methods
-- API key authentication
-- OAuth 2.0 flow support
-- Webhook signature verification
-- Token-based authentication
-
-### Outgoing Integrations
-
-#### Event Webhooks
-Configurable notifications for:
-- Ticket created
-- Ticket status changed
-- Chat started/ended
-- SLA breached
-- Agent availability changed
-
-#### Webhook Payload Example
-```json
-{
-  "event": "ticket.created",
-  "timestamp": "ISO-8601",
-  "data": {
-    "ticket_id": "TKT-001234",
-    "title": "Issue title",
-    "user": "user_id",
-    "category": "technical"
-  },
-  "signature": "HMAC-SHA256"
-}
-```
-
-### External Service Connections
-
-#### Email Services
-- SMTP configuration (follows the NOTIFICATIONS / SERVER SMTP canon)
-- API-based (SendGrid, SES, etc.)
-- Fallback providers
-- SPF/DKIM settings
-
-#### File Storage
-- Local file system
-- S3-compatible storage
-- CDN integration
-- Virus scanning service
-
-#### Analytics
-- Event tracking
-- Custom dimensions
-- Funnel analysis
-- Export to data warehouse
-
----
-
-## 🤖 AI Integration Guidelines (DEVELOPMENT ONLY)
-
-### ⚠️ CRITICAL: AI is for Development, NOT Production
-
-**AI tools are used ONLY during development to:**
-- Generate pattern matching rules
-- Create the compiled bot database
-- Analyze your codebase for patterns
-- Build the logic rules
-
-**The production system:**
-- Runs pure logic-based pattern matching
-- No AI/ML inference at runtime
-- No external API calls to AI services
-- Completely deterministic responses
-- 100% self-contained and offline-capable
-
-### Using AI Development Tools (e.g., Claude Code, GitHub Copilot, Cursor)
-
-#### Initial Setup Prompt
-```
-I'm implementing a support system based on the provided specification. 
-Key requirements:
-- Logic-based bot (no AI/ML for responses)
-- Web UI configuration only
-- Support mode toggle for agents
-- Bot pre-screening before ticket creation
-- Integration with existing [auth system/database/framework]
-```
-
-#### AI-Powered Pattern Generation (BUILD TIME ONLY)
-
-**Development Time (WITH AI)**:
-```bash
-# AI analyzes code and generates patterns
-$ claude-code "Generate bot pattern database from project"
-
-# Output: Static pattern data in whatever format suits your implementation:
-# - Compiled into the application binary
-# - Embedded in the database during deployment
-# - Stored as encrypted configuration
-# - Built into a constants file
-# - Whatever works for your architecture
-```
-
-**Production Runtime (NO AI)**:
-```
-// Production bot loads patterns from wherever they're stored
-// Could be from database, compiled code, config, etc.
-// Pure regex/string matching, no AI inference
-// Deterministic responses based on pattern matching
-```
-
-**Pattern Storage Options** (Implementation Choice):
-- Compiled into application code
-- Seeded into database tables
-- Embedded in binary resources
-- Stored in secure configuration
-- Built as part of deployment artifacts
-- Whatever suits your tech stack
-
-**What AI Tools Can Auto-Detect (During Build)**:
-```
-Based on your project, AI can identify:
-- Your API endpoints and their error responses
-- Your database schema and common query errors
-- Your authentication flow and failure points
-- Your documentation structure and help articles
-- Your specific feature names and UI elements
-- Your error code format and meanings
-- Your business logic and validation rules
-```
-
-**Example AI Pattern Generation**:
-```bash
-# Claude Code can analyze your project and generate patterns
-$ claude-code "Analyze this project and generate bot patterns for:
-- All API endpoints and their possible errors
-- All form validations and their messages  
-- All features mentioned in our documentation
-- All error codes in our error constants file
-- Common issues based on our GitHub issues"
-
-# AI generates project-specific patterns that complement universal ones
-```
-
-### Implementation Strategy with AI Tools
-
-**1. Modular Implementation Approach**:
-Break down the specification into modules for AI to implement:
-```
-1. User authentication integration
-2. Ticket CRUD operations
-3. Bot pattern matching engine
-4. Support mode switching
-5. Live chat websocket handling
-6. Knowledge base search
-7. Notification system
-8. Admin configuration UI
-```
-
-**2. Provide Context Files**:
-When using AI tools, include:
-- This specification document
-- Your existing authentication schema
-- Your database models
-- Your API structure
-- Your UI framework components
-
-**3. Key Prompts for Each Module**:
-
-**For Bot System**:
-```
-Implement a pattern-matching bot that:
-- Uses built-in universal patterns (works out-of-the-box)
-- PLUS AI-generated project-specific patterns from:
-  * Your error constants/enums
-  * Your API endpoint responses
-  * Your validation messages
-  * Your documentation files
-  * Your database constraints
-- Uses regex and exact string matching (no AI/ML for responses)
-- Only responds at 100% confidence
-- Attempts 3 solutions maximum
-- Creates pre-filled ticket payload after failures
-- Never saves tickets directly
-Reference: [Bot Automation System section - Built-in Pattern Recognition]
-
-Example: If your project has a 'RATE_LIMIT_EXCEEDED' error,
-AI will automatically create pattern and solution for it.
-```
-
-**For Support Mode**:
-```
-Implement support mode toggle that:
-- Shows clear banner when active (not sticky on mobile)
-- Disables ticket creation for agents
-- Switches UI context completely
-- Maintains user session separately
-Reference: [Support Agent System section]
-```
-
-**For Ticket System**:
-```
-Implement ticket lifecycle with states:
-DRAFT → OPEN → ASSIGNED → IN_PROGRESS → AWAITING_USER 
-→ AWAITING_AGENT → RESOLVED → CLOSED → REOPENED
-With proper state transition rules and permissions
-Reference: [Ticket Lifecycle section]
-```
-
-### Testing Scenarios for AI to Generate
-
-Ask AI to create test cases for:
-- User can't create tickets in support mode
-- Bot correctly generates ticket payload
-- Chat fallback when no agents available
-- Ticket state transitions
-- Permission matrix enforcement
-- Rate limiting for different user types
-- Support mode banner displays correctly
-- Agent display names show properly
-
-### Best Practices for AI Implementation
-
-**DO:**
-- Provide the full specification as context
-- Break down into smaller, testable components
-- Ask AI to follow the state machine strictly
-- Request unit tests for each component
-- Have AI generate migration scripts for existing systems
-- Keep patterns in implementation-appropriate format
-
-**DON'T:**
-- Ask AI to implement ML/AI features for the bot
-- Allow configuration outside web UI
-- Skip the bot pre-screening phase
-- Let AI create fixed API endpoints (keep them configurable)
-- Implement without audit logging
-- Use specific file formats if not appropriate
-
-### Validation Checklist for AI-Generated Code
-
-Ask AI to verify:
-- [ ] Bot only responds at 100% confidence
-- [ ] Users must confirm before ticket creation
-- [ ] Support mode prevents agent ticket creation
-- [ ] All configuration via web UI
-- [ ] Audit logging on all operations
-- [ ] Proper state transitions enforced
-- [ ] Rate limiting implemented
-- [ ] Mobile-responsive UI
-- [ ] Accessibility standards met
-- [ ] No hardcoded paths or endpoints
-- [ ] Patterns stored appropriately for tech stack
-- [ ] No AI/ML at runtime
-
----
-
 ## 🚀 Implementation Guidelines
 
-### Database Considerations
-
-#### Required Entities (Minimum)
+### Required Entities (Minimum)
 - Users
 - Tickets
 - Messages/Replies
@@ -1732,71 +1275,14 @@ Ask AI to verify:
 - Chat_Sessions
 - Canned_Responses
 
-#### Indexing Strategy
+### Indexing Strategy
 - ticket_id (primary)
 - user_id + status (compound)
 - assigned_to + status (compound)
 - created_at (timestamp)
 - Full-text on title, description
 
-### Performance Requirements
-
-#### Target Metrics
-- Page load: < 2 seconds
-- Search results: < 500ms
-- Chat message delivery: < 100ms
-- File upload: Progress indicator
-- Auto-save: Every 30 seconds
-
-#### Scalability Considerations
-- Horizontal scaling for agents
-- Queue system for notifications
-- CDN for static assets
-- Database read replicas
-- Caching layer (Redis/Memcached)
-
-### Testing Requirements
-
-#### Functional Testing
-- All user flows
-- State transitions
-- Permission matrix
-- Bot conversation paths
-- Chat scenarios
-- Support mode toggle
-- Canned responses
-
-#### Non-Functional Testing
-- Load testing (concurrent users)
-- Security testing (OWASP Top 10)
-- Accessibility testing (screen readers)
-- Mobile device testing
-- Browser compatibility
-
-### Deployment Checklist
-
-#### Pre-Launch
-- [ ] AI-generated patterns integrated into chosen storage method
-- [ ] No AI service dependencies in production code
-- [ ] Pattern data properly isolated and secured
-- [ ] Database migrations complete
-- [ ] Email templates configured
-- [ ] Bot patterns tested with sample inputs
-- [ ] Support agents trained
-- [ ] Knowledge base seeded
-- [ ] SSL certificates installed
-- [ ] Backup system tested
-- [ ] Monitoring alerts configured
-- [ ] Canned responses configured
-
-#### Post-Launch
-- [ ] Monitor error rates
-- [ ] Review bot effectiveness
-- [ ] Gather user feedback
-- [ ] Optimize slow queries
-- [ ] Adjust rate limits
-- [ ] Update documentation
-- [ ] Track canned response usage
+Schemas, migrations, performance targets, testing and deployment follow the host template.
 
 ---
 
@@ -1816,27 +1302,6 @@ Ask AI to verify:
 500 - Server Error
 503 - Maintenance Mode
 ```
-
-### Glossary
-
-- **Agent**: Support team member (can be admin or regular user with support role)
-- **Bot**: Automated response system (logic-based, no AI/ML)
-- **Canned Response**: Pre-written reply (system, department, or personal)
-- **Escalation**: Increasing priority/urgency
-- **KB**: Knowledge Base
-- **Pattern**: Regex or string match rule for bot
-- **SLA**: Service Level Agreement
-- **Support Mode**: Special UI mode for agents
-- **Thread**: Conversation within ticket
-- **Ticket**: Support request
-
-### Version History
-
-- v2.1 - Clarified AI is development-only, pattern storage generic, improved agent system
-- v2.0 - Added bot automation, support mode, agent personalization
-- v1.0 - Initial specification
-
----
 
 ## 📝 Key Implementation Notes
 

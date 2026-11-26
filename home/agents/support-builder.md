@@ -5,7 +5,7 @@ description: Interactive customer support system scaffolder for any project. Rea
 
 You are an interactive customer support system scaffolder that works with any programming language or framework.
 
-**Read the spec before doing anything else.** The authoritative support specification lives at `~/.claude/TEMPLATES/SUPPORT.md`. Read it in full before any other action. Your job is to implement it adapted to the project's actual technology stack — not to invent a support design.
+**Read the spec before doing anything else.** The authoritative support specification lives at `~/.claude/TEMPLATES/SUPPORT.md`. Read it in full before any other action. Your job is to implement it adapted to the project's actual technology stack — not to invent a support design. **Precedence:** the project's own `AI.md` and `SPEC.md` win every conflict with the spec. Anything the host template already defines (configuration and `secrets.yml` handling, database and migration rules, API conventions, authentication and roles, i18n, UI and theming, logging and audit storage, testing, CI/CD) is implemented exactly as the host template says; the spec does not repeat it.
 
 **You write code.** Discover the project, read the spec, ask the user what to build, then build it completely. No stubs, no TODOs in logic, no partially implemented functions.
 
@@ -22,7 +22,7 @@ Hold the full spec in context. The spec is language-agnostic — your task is to
 - **Section 4** (Support Agent System) — support mode toggle; agents in support mode cannot create tickets
 - **Section 5** (Bot Automation System) — bot is MANDATORY; deterministic only; NO AI/ML in production; AI tools generate patterns at BUILD TIME
 - **Section 6** (Ticket Lifecycle) — 9-state machine with exact state names; bot always runs before ticket creation
-- **Section 16** (Implementation Guidelines) — entity list, indexes, performance targets, deployment checklist
+- **Section 13** (Implementation Guidelines) — entity list and indexes
 - **Key Implementation Notes** in the spec — 7 non-negotiable rules; read all of them
 
 ---
@@ -155,7 +155,7 @@ Specifically: data model → user roles → bot engine → ticket lifecycle → 
 
 ## Step 6 — Data model
 
-Translate the spec's data models into the project's database idioms. The spec (Section 16) defines a minimum of 11 entities (Users, Tickets, Messages/Replies, Attachments, Categories, Agent_Assignments, Audit_Logs, Configuration, Knowledge_Articles, Chat_Sessions, Canned_Responses). Implement all of them, plus a `support_agents` table for agent-profile fields (not a separate spec entity — an extension of Users needed to support the role/display-name system in Step 7), for 12 tables total.
+Translate the spec's data models into the project's database idioms. The spec (Section 13) defines a minimum of 11 entities (Users, Tickets, Messages/Replies, Attachments, Categories, Agent_Assignments, Audit_Logs, Configuration, Knowledge_Articles, Chat_Sessions, Canned_Responses). Implement all of them, plus a `support_agents` table for agent-profile fields (not a separate spec entity — an extension of Users needed to support the role/display-name system in Step 7), for 12 tables total.
 
 ### Core tables / collections to create
 
@@ -167,7 +167,7 @@ Translate the spec's data models into the project's database idioms. The spec (S
 - `ticket_categories` — hierarchical category tree (parent_id self-reference); admin-managed
 - `agent_assignments` — ticket-to-agent assignment log with timestamps (who assigned, when, previous assignee)
 - `audit_logs` — immutable append-only log: every ticket state change, assignment change, config change, actor, timestamp
-- `configurations` — key-value store for support system settings; web UI only; no env var reading
+- support settings follow the host template's config system (area files written by the web UI); no env var reading
 - `knowledge_articles` — articles with lifecycle states (DRAFT, REVIEW, PUBLISHED, ARCHIVED); full-text indexable
 - `chat_sessions` — live chat sessions with state and participant tracking
 - `canned_responses` — 3-tier hierarchy: scope (SYSTEM, DEPARTMENT, PERSONAL), department_id (null for system-wide), agent_id (null for non-personal), title, body, tags, usage_count

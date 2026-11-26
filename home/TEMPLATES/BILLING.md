@@ -18,53 +18,39 @@
 15. [Security & Compliance](#security--compliance)
 16. [Failure Handling & Recovery](#failure-handling--recovery)
 17. [Audit & Reporting](#audit--reporting)
-18. [Integration Points](#integration-points)
-19. [AI Development Guidelines](#ai-development-guidelines)
-20. [Implementation Guidelines](#implementation-guidelines)
-21. [Appendix](#appendix)
+18. [Implementation Guidelines](#implementation-guidelines)
+19. [Appendix](#appendix)
 
 ---
 
 ## 🎯 Purpose & Scope
 
 ### Purpose
-This specification defines a complete billing and subscription management system designed to be integrated into any type of project—SaaS applications, self-hosted software, enterprise platforms, marketplaces, or digital services. It provides flexible subscription management, multi-provider payment processing (with 47+ providers all disabled by default), usage-based billing, tax compliance, and comprehensive financial controls with integrated setup guidance.
+This is a feature template: the billing domain specification (plans, subscription and invoice state machines, payment providers, usage metering, tax, invoicing, provider failover and reconciliation) applied INTO an existing project by the `billing-builder` agent. It is an optional, machine-level reference that informs the project's `SPEC.md` billing contract.
 
-### Scope
-- **Language/Framework Agnostic**: Implementable in any programming language or framework
-- **Database Agnostic**: Works with any database system (SQL or NoSQL)
-- **Payment Provider Agnostic**: Supports 47+ payment gateways, all disabled by default
-- **Deployment Agnostic**: Cloud, on-premise, hybrid, or distributed
-- **Business Model Agnostic**: Subscription, one-time, usage-based, or hybrid pricing
-- **Configuration Method**: Admin UI writes provider credentials to `secrets.yml` (mode `0600`, never committed)
-- **Localization**: All user-facing strings are translated; keys follow the `errors.*` / `notifications.*` pattern
+### Precedence
+The project's own `AI.md` (its project template) and `SPEC.md` win every conflict. This file never redefines what the host template already owns: configuration and `secrets.yml` handling, database and migration rules, API conventions, authentication and roles, i18n, notifications delivery, UI and theming, logging and audit, testing, CI/CD and release. Where this file and the host template overlap, follow the host template and do not copy its text here, so there is one place to maintain each rule.
 
 ### What This Specification Defines
 - Billing state machines and transitions
-- Payment processing workflows with 47+ provider options
+- Payment provider catalog, abstraction layer and failover
 - Tax calculation and compliance rules
 - Usage metering and enforcement
-- Administrative and user interfaces with integrated help
-- Security and compliance requirements
-- Failure scenarios and recovery procedures
-- In-UI setup guidance and tooltips
+- Invoicing, credit notes, refunds and disputes
+- Billing-specific notices, help content and recovery procedures
 
 ### What This Specification Does NOT Define
-- Specific payment provider APIs
-- Database schemas or table structures
-- API endpoint URLs or naming conventions
-- Currency conversion rates or methods
-- Specific tax rates or jurisdictions
-- Visual design or UI layouts
-- Third-party service credentials
-- Implementation language or framework
+- Specific payment provider APIs, database schemas, endpoint URLs or UI layouts
+- Currency conversion rates, tax rates or jurisdictions
+- Third-party credentials: provider credentials follow the host template's secrets rules, never code or committed files
+- Language, framework, or deployment
 
 ---
 
 ## 🏗️ Core Design Principles
 
 ### 1. Provider Independence & Zero-Default
-**Principle**: System ships with NO active payment providers. All 47+ providers are disabled by default.
+**Principle**: System ships with NO active payment providers. All providers are disabled by default.
 - All providers disabled on installation
 - Web UI configuration required for activation
 - System works with zero providers (invoice-only)
@@ -122,21 +108,6 @@ This specification defines a complete billing and subscription management system
 ---
 
 ## 👤 Account & Identity Management
-
-### Account Structure
-
-#### Core Account Model
-```
-Account
-├── Identity (from host system)
-├── Billing Profile
-├── Subscription(s)
-├── Payment Method(s)
-├── Invoice History
-├── Usage Records
-├── Provider Preferences
-└── Audit Trail
-```
 
 ### Billing Profile
 
@@ -513,11 +484,11 @@ Day +Grace:
 
 ### Payment Providers Overview
 
-**CRITICAL**: All 47+ payment providers ship DISABLED by default. Each must be explicitly configured and enabled via web UI.
+**CRITICAL**: All payment providers ship DISABLED by default. Each must be explicitly configured and enabled via web UI.
 
 ### Available Payment Providers
 
-#### Global Payment Processors (7 providers)
+#### Global Payment Processors
 ```yaml
 Stripe:
   - Cards, Bank Transfers, Wallets
@@ -554,7 +525,7 @@ Authorize.net:
   - Recurring billing
   - Fraud prevention
   
-Worldpay (FIS):
+Worldpay (Global Payments):
   - Cards, APMs
   - 120+ currencies
   - Enterprise scale
@@ -569,7 +540,7 @@ Checkout.com:
   - Smart routing
 ```
 
-#### Regional Specialists (9 providers)
+#### Regional Specialists
 ```yaml
 Mollie (Europe):
   - iDEAL, SEPA, Cards
@@ -626,14 +597,8 @@ SEPA (Europe):
   - B2B supported
 ```
 
-#### Cryptocurrency Processors (5 providers)
+#### Cryptocurrency Processors
 ```yaml
-Coinbase Commerce:
-  - BTC, ETH, USDC, etc.
-  - No chargebacks
-  - Global reach
-  - Self-custody
-  
 BitPay:
   - Multiple cryptocurrencies
   - Fiat settlements
@@ -659,7 +624,7 @@ BTCPay Server:
   - Privacy focused
 ```
 
-#### Buy Now Pay Later (5 providers)
+#### Buy Now Pay Later
 ```yaml
 Klarna:
   - Split payments
@@ -667,7 +632,7 @@ Klarna:
   - Global coverage
   - Instant approval
   
-Afterpay/Clearpay:
+Afterpay/Clearpay (Cash App Afterpay in the US):
   - Installments
   - No interest
   - Instant approval
@@ -692,7 +657,7 @@ PayPal Pay Later:
   - Quick checkout
 ```
 
-#### Enterprise/B2B Focused (5 providers)
+#### Enterprise/B2B Focused
 ```yaml
 Bill.com:
   - AP/AR automation
@@ -722,7 +687,7 @@ Zuora:
   - Enterprise scale
 ```
 
-#### Banking & Traditional (4 providers)
+#### Banking & Traditional
 ```yaml
 ACH Direct:
   - US bank transfers
@@ -745,7 +710,7 @@ Check/Cheque:
   - Still required (some)
 ```
 
-#### Mobile & Digital Wallets (6 providers)
+#### Mobile & Digital Wallets
 ```yaml
 Apple Pay:
   - iOS integration
@@ -778,7 +743,7 @@ Cash App:
   - Cash Card
 ```
 
-#### Alternative & Niche (6 providers)
+#### Alternative & Niche
 ```yaml
 Paysafecard:
   - Prepaid vouchers
@@ -823,7 +788,7 @@ Available Providers:
 ├── Stripe [Disabled] [Configure]
 ├── PayPal [Disabled] [Configure]
 ├── Square [Disabled] [Configure]
-├── [Show all 47+ providers...]
+├── [Show all providers...]
 
 Provider: Stripe
 Status: ○ Disabled ● Enabled
@@ -1325,7 +1290,7 @@ Custom: User-defined pattern
 ### Provider Configuration
 
 #### Default State: ALL DISABLED
-**Critical**: No payment providers are enabled by default. Each of the 47+ providers must be explicitly configured and enabled through the web interface. The system can run with zero providers enabled (invoice-only mode).
+**Critical**: No payment providers are enabled by default. Each provider must be explicitly configured and enabled through the web interface. The system can run with zero providers enabled (invoice-only mode).
 
 #### Provider States
 ```
@@ -1364,7 +1329,7 @@ Status Filter:
 ├── □ Square          [Disabled] [Configure]
 └── [Load more...]
 
-Currently Enabled: 0 of 47
+Currently Enabled: 0 of {N}
 ```
 
 #### Zero-Provider Mode
@@ -1539,90 +1504,6 @@ Each tooltip includes:
 └───────────────────────────────────────────────
 ```
 
-### Self-Service Troubleshooting
-
-#### Diagnostic Tools
-```
-Connection Debugger:
-  - Test API credentials
-  - Verify webhook endpoints
-  - Check network connectivity
-  - Validate SSL certificates
-  - Test payment flow
-  - Simulate common errors
-  
-Each test shows:
-  - What it's checking
-  - Why it matters
-  - Pass/fail result
-  - Fix instructions
-```
-
-#### Solution Wizard
-```
-Problem: Payment failing
-├── Is it all payments? [Y/N]
-├── Specific card types? [Y/N]
-├── Certain amounts? [Y/N]
-└── Generate diagnosis
-
-Suggested Solutions:
-1. Check 3DS settings [How?]
-2. Verify currency support [Check]
-3. Review fraud rules [Open]
-```
-
-### Interactive Tutorials
-
-#### Guided Setup
-```
-First Provider Setup:
-━━━━━━━━━━━━━━━━━━━
-Welcome! Let's set up payments.
-This wizard will guide you through:
-  
-1. Choosing a provider [2 min]
-2. Creating provider account [5 min]
-3. Configuring credentials [3 min]
-4. Testing the connection [2 min]
-5. Enabling the provider [1 min]
-
-[Start Interactive Tutorial]
-[Skip - I know what I'm doing]
-```
-
-#### Provider Comparison Tool
-```
-Provider Comparison
-━━━━━━━━━━━━━━━━━━
-Compare: [Stripe] vs [PayPal] vs [Square]
-
-                    Stripe | PayPal | Square
-Setup Difficulty      Easy | Medium | Easy
-                      [?]  |  [?]   |  [?]
-Transaction Fees      2.9% | 2.99%  | 2.6%
-                      [?]  |  [?]   |  [?]
-International         ✓    |   ✓    |   ✗
-                      [?]  |  [?]   |  [?]
-```
-
-### Knowledge Base Integration
-
-#### Embedded Documentation
-```
-Each provider includes:
-  - API documentation excerpts
-  - Webhook event catalog
-  - Error code dictionary
-  - Test card numbers
-  - Sandbox accounts
-  - Rate limits
-  - Feature matrix
-  - Pricing calculator
-```
-
----
-
 ## 📬 Notification System
 
 ### Notification Types
@@ -1651,54 +1532,6 @@ Each provider includes:
 - Upgrade suggestions
 - Newsletter content
 - Survey requests
-
-### Delivery Channels
-
-#### Email
-```
-Templates:
-  - HTML with text fallback
-  - Localization support
-  - Variable substitution
-  - Attachment support
-  - Provider-specific notices
-  
-Delivery:
-  - Provider abstraction
-  - Bounce handling
-  - Unsubscribe management
-  - SPF/DKIM/DMARC compliance
-```
-
-#### In-Application
-```
-Types:
-  - Banner notifications
-  - Modal alerts
-  - Badge indicators
-  - Toast messages
-  - Provider status updates
-  
-Persistence:
-  - Until acknowledged
-  - Time-based expiry
-  - Priority queuing
-```
-
-#### Webhooks
-```
-Events:
-  - All billing events
-  - Provider state changes
-  - Configurable filtering
-  - Retry on failure
-  - Exponential backoff
-  
-Security:
-  - HMAC signatures
-  - TLS required
-  - IP whitelist optional
-```
 
 ### Notification Rules
 
@@ -1821,7 +1654,7 @@ Operational Metrics:
   - Dispute rate
   
 System Health:
-  - Provider status (X of 47 enabled)
+  - Provider status (X of {N} enabled)
   - Active providers health
   - Queue depths
   - Error rates
@@ -1833,7 +1666,7 @@ System Health:
 #### Provider Administration
 ```
 Quick Stats:
-  - Total Available: 47 providers
+  - Total Available: {N} providers
   - Currently Enabled: 0 (default)
   - Healthy: N/A
   - Degraded: N/A
@@ -1855,7 +1688,7 @@ Provider Actions:
 Provider Setup Wizard:
 ━━━━━━━━━━━━━━━━━━━━━
 Step 1: Choose Provider
-  [Dropdown: Select from 47 providers]
+  [Dropdown: Select from the provider list]
   [?] Each provider has complete setup guide
   
 Step 2: Enter Credentials
@@ -1917,7 +1750,7 @@ Core Settings:
 └── Billing Cycle: [Monthly ▼]
 
 Provider Settings:
-├── Enabled Providers: 0 of 47 [Configure]
+├── Enabled Providers: 0 of {N} [Configure]
 ├── Failover: [Automatic ▼]
 ├── Load Balancing: [Priority ▼]
 └── Provider Timeout: [30] seconds
@@ -1934,36 +1767,6 @@ Features:
 ---
 
 ## 🔐 Security & Compliance
-
-### Data Protection
-
-#### Sensitive Data Handling
-```
-Payment Data:
-  - Never store full card numbers
-  - Tokenization required
-  - Provider handles PCI compliance
-  - Encryption at rest
-  - Encryption in transit
-  
-Personal Data:
-  - GDPR compliance
-  - Data minimization
-  - Purpose limitation
-  - Retention policies
-  - Right to deletion
-```
-
-#### Access Controls
-```
-Role-Based Access:
-  - Granular permissions
-  - Separation of duties
-  - Audit logging
-  - Session management
-  - MFA enforcement
-  - Provider credential protection
-```
 
 ### PCI Compliance
 
@@ -1997,30 +1800,6 @@ Industry-Specific:
   - SOC2 (enterprise)
   - ISO 27001 (international)
 ```
-
-### Audit Requirements
-
-#### Audit Logging
-```
-What to Log:
-  - All state changes
-  - Payment attempts (with provider)
-  - Administrative actions
-  - Provider configuration changes
-  - API access
-  - Security events
-  
-Log Contents:
-  - Timestamp
-  - Actor (user/system)
-  - Action
-  - Target
-  - Provider used
-  - Result
-  - IP address
-```
-
----
 
 ## 🚨 Failure Handling & Recovery
 
@@ -2172,212 +1951,6 @@ Provider Analytics:
 
 ---
 
-## 🔌 Integration Points
-
-### Required Integrations
-
-#### Host Application
-```
-Data Exchange:
-  - User authentication
-  - Account provisioning
-  - Feature flags
-  - Usage data
-  - Audit events
-  
-Synchronization:
-  - Real-time status
-  - Provider availability
-  - Periodic reconciliation
-  - Bulk updates
-  - Event streaming
-```
-
-#### External Services
-```
-Payment Providers (47+ available):
-  - All disabled by default
-  - Web UI configuration only
-  - No hardcoded credentials
-  - Plugin architecture
-  
-Tax Services:
-  - API keys via UI
-  - Calculation rules
-  - Rate updates
-  - Filing integration
-  
-Communication:
-  - Email service
-  - SMS gateway
-  - Push notifications
-  - In-app messaging
-```
-
-### API Design
-
-#### REST Endpoints (Examples - Implementation Defines Actual)
-```
-Subscriptions:
-  - List subscriptions
-  - Create subscription
-  - Update subscription
-  - Cancel subscription
-  
-Invoices:
-  - List invoices
-  - Get invoice details
-  - Pay invoice
-  - Dispute invoice
-  
-Providers:
-  - List enabled providers
-  - Get provider status
-  - Test provider
-```
-
-#### Webhooks Out
-```
-Events Emitted:
-  - subscription.created
-  - subscription.updated
-  - payment.succeeded
-  - payment.failed
-  - invoice.created
-  - provider.failed
-  - provider.recovered
-```
-
----
-
-## 🤖 AI Development Guidelines (DEVELOPMENT ONLY)
-
-### ⚠️ CRITICAL: AI is for Development, NOT Required in Production
-
-**AI tools are used ONLY during development to:**
-- Generate provider integration code
-- Create state machine implementations
-- Build test scenarios
-- Generate tooltip content
-- Create migration scripts
-
-**The production system:**
-- May or may not use AI/ML (implementation choice)
-- All core billing logic is deterministic
-- Provider integrations are rule-based
-- State transitions are explicit
-- No AI required for operation
-
-### Using AI Development Tools
-
-#### Initial Setup with AI
-```bash
-# Example using Claude Code
-$ claude-code "Implement billing system based on specification with:
-  - 47+ payment providers (all disabled by default)
-  - Web UI configuration only
-  - Provider plugin architecture
-  - Complex state machines
-  - Integrated help system"
-```
-
-#### AI-Generated Provider Plugins
-```bash
-# Generate provider implementation
-$ claude-code "Create Stripe provider plugin including:
-  - Interface implementation
-  - Webhook handling
-  - Error mapping
-  - Retry logic
-  - Tooltip content
-  - Setup guide"
-
-# Generate all provider stubs
-$ claude-code "Generate plugin stubs for all 47 providers"
-```
-
-#### State Machine Implementation
-```bash
-$ claude-code "Generate subscription state machine:
-  - All states from spec
-  - Transition validation
-  - Event handling
-  - Test coverage"
-```
-
-#### Test Generation
-```bash
-$ claude-code "Create comprehensive test suite:
-  - Provider failover scenarios
-  - Grace period handling
-  - Multi-currency calculations
-  - All state transitions
-  - Webhook processing"
-```
-
-### What AI Generates
-
-#### Per-Provider Components
-- Payment method tokenization
-- Subscription management
-- Webhook event handling
-- Error code mapping
-- Currency handling
-- Retry logic
-- Test data
-- Setup documentation
-- Tooltip content
-
-#### System Components
-- State machines
-- Proration calculations
-- Tax calculation logic
-- Failover routing
-- Reconciliation processes
-- Migration scripts
-- Database schemas
-
-### AI Development Best Practices
-
-**DO:**
-- Use AI to generate provider plugins from templates
-- Have AI create comprehensive test suites
-- Let AI generate tooltip and help content
-- Use AI for migration scripts
-- Generate documentation with AI
-
-**DON'T:**
-- Rely on AI for financial calculations in production
-- Use AI for real-time payment decisions
-- Let AI generate security credentials
-- Use AI for compliance decisions
-- Generate production API keys with AI
-
-**VALIDATE:**
-- All state machines match specification
-- Provider interfaces are complete
-- Error handling is comprehensive
-- Security requirements are met
-- Help content is accurate
-
-### Production Considerations
-
-**What happens in production:**
-- All provider plugins run as deterministic code
-- State machines execute predefined transitions
-- Calculations follow explicit formulas
-- Failover uses configured priority
-- No AI required for any billing operation
-
-**Optional AI/ML in Production** (Implementation Choice):
-- Fraud detection (separate from billing logic)
-- Churn prediction (analytics layer)
-- Optimal retry timing (enhancement only)
-- Revenue forecasting (reporting feature)
-- These are OPTIONAL additions, not requirements
-
----
-
 ## 💡 Implementation Guidelines
 
 ### Architecture Patterns
@@ -2405,7 +1978,7 @@ Plugin Architecture:
 DON'T:
   - Store sensitive payment data directly
   - Hard-code provider credentials
-  - Put provider credentials anywhere other than `secrets.yml`
+  - Put provider credentials anywhere the host template's secrets rules do not allow
   - Enable providers by default
   - Skip tooltip implementation
   - Make synchronous external calls in transactions
@@ -2442,7 +2015,7 @@ Provider Directory Structure (example):
 #### Provider Registry
 ```
 System maintains registry of:
-  - Available providers (all 47+)
+  - Available providers (all)
   - Enabled providers (user configured)
   - Provider capabilities
   - Provider health status
@@ -2458,41 +2031,11 @@ No provider code runs unless:
 
 #### Configuration Storage
 ```
-Provider configurations stored in:
-  - `secrets.yml` (mode 0600, never committed)
-  - Never in code
+Provider configurations stored per the host template's secrets rules (credentials in `secrets.yml`; shared secrets reach other nodes by the host's join and rotation, never by config sync):
+  - Never in code or committed files
   - Written by the admin UI
   - Audited on every change
   - Includes tooltip content
-```
-
-### Testing Strategy
-
-#### Test Coverage Required
-```
-Unit Tests:
-  - Calculation logic
-  - State transitions
-  - Business rules
-  - Each provider plugin
-  
-Integration Tests:
-  - Provider interactions
-  - Webhook processing
-  - API endpoints
-  - Failover scenarios
-  
-End-to-End Tests:
-  - Complete billing cycles
-  - Provider switching
-  - Upgrade/downgrade flows
-  - Payment failure handling
-  
-Performance Tests:
-  - High volume processing
-  - Multiple provider load
-  - Concurrent operations
-  - Rate limiting
 ```
 
 ### Migration Strategy
@@ -2576,55 +2119,10 @@ BILLING-011: No providers enabled
 BILLING-012: All providers failed
 ```
 
-### Glossary
-
-- **MRR**: Monthly Recurring Revenue
-- **ARR**: Annual Recurring Revenue
-- **ARPU**: Average Revenue Per User
-- **LTV**: Lifetime Value
-- **CAC**: Customer Acquisition Cost
-- **Churn**: Subscription cancellation rate
-- **Dunning**: Failed payment recovery process
-- **Proration**: Partial period billing calculation
-- **Grace Period**: Time allowed after payment failure
-- **Webhook**: HTTP callback for events
-- **Tokenization**: Secure payment data storage
-- **PCI DSS**: Payment Card Industry Data Security Standard
-- **SCA**: Strong Customer Authentication
-- **3DS**: 3D Secure authentication
-- **KYC**: Know Your Customer
-- **AML**: Anti-Money Laundering
-- **BNPL**: Buy Now Pay Later
-- **APM**: Alternative Payment Method
-
-### Provider Quick Reference
-
-#### Categories Summary
-- **Global Processors**: 7 providers (Stripe, PayPal, Adyen, etc.)
-- **Regional Specialists**: 9 providers (Mollie, Razorpay, etc.)
-- **Cryptocurrency**: 5 providers (Coinbase Commerce, BitPay, etc.)
-- **Buy Now Pay Later**: 5 providers (Klarna, Afterpay, etc.)
-- **Enterprise/B2B**: 5 providers (Bill.com, Paddle, etc.)
-- **Banking/Traditional**: 4 providers (ACH, Wire, etc.)
-- **Mobile Wallets**: 6 providers (Apple Pay, Google Pay, etc.)
-- **Alternative/Niche**: 6 providers (Paysafecard, Skrill, etc.)
-
-**Total Available**: 47+ providers
-**Default Enabled**: 0 providers
-**Configuration Method**: Admin UI writes `secrets.yml`
-
-### Version History
-
-- v2.1 - Complete regeneration with all 47+ providers, integrated help, AI development section
-- v2.0 - Added provider management, help system, state machines
-- v1.0 - Initial specification
-
----
-
 ## 📝 Critical Implementation Notes
 
-1. **All Payment Providers Disabled by Default**: System ships with 47+ provider integrations, ALL disabled
-2. **Credentials in secrets.yml Only**: Provider credentials NEVER in code or committed files; the admin UI writes `secrets.yml` (mode 0600)
+1. **All Payment Providers Disabled by Default**: System ships with the full provider catalog, ALL disabled
+2. **Credentials Follow the Host Template**: Provider credentials NEVER in code or committed files; the admin UI writes them where the host template's secrets rules say (`secrets.yml`)
 3. **Integrated Help Required**: All provider setup instructions must be in-UI with tooltips
 4. **Never Store Sensitive Payment Data**: Always use tokenization
 5. **Always Generate Invoices**: Even if payment fails or all providers are down
@@ -2639,15 +2137,10 @@ BILLING-012: All providers failed
 14. **Provider Failover**: Automatic failover through enabled providers only
 15. **No Provider Lock-in**: Must be able to migrate between providers
 16. **Plugin Architecture**: Each provider is a self-contained module
-17. **AI for Development Only**: AI assists development but is NOT required for production
-18. **Help Content Mandatory**: Every configuration field must have contextual help
-19. **Zero-Provider Operation**: System must function with manual invoicing only
-20. **Provider Priority**: Failover follows admin-configured priority order
+17. **Help Content Mandatory**: Every configuration field must have contextual help
+18. **Zero-Provider Operation**: System must function with manual invoicing only
+19. **Provider Priority**: Failover follows admin-configured priority order
 
 ---
 
-*This specification is designed to be completely implementation-agnostic and can be adapted to any technology stack, business model, or deployment environment. The billing system should integrate with your existing application while maintaining clear boundaries and separation of concerns.*
-
-*All 47+ payment providers are available but disabled by default. Configuration is done exclusively through the web UI with integrated help and tooltips. No external documentation is required for provider setup.*
-
-*AI tools can assist in development but are not required for production operation. The core billing logic is deterministic and does not require any machine learning or AI to function.*
+*Feature template: the project's own `AI.md` and `SPEC.md` win every conflict. All payment providers are available but disabled by default, and billing logic is deterministic: no AI or machine learning is needed in production.*
