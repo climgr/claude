@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202611220002-git
+##@Version           :  202611261200-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, August 30, 2026 16:00 EDT
 # @@File             :  no-history-rewrite.sh
 # @@Description      :  PreToolUse hook: blocks destructive/history-rewriting git ops everywhere — a hook can only block, not interactively confirm.
-# @@Changelog        :  Allow `git -C <abs-dir> branch -D`; the unscoped form stays blocked. Allow `git -C <abs-dir> push --delete` (never --mirror) and `git -C <abs-dir> stash drop`; stash clear and every unscoped form stay blocked. Decode the stdin payload file as UTF-8 with replacement and fail open on any parse exception (not only JSONDecodeError) — a non-UTF-8 byte previously raised UnicodeDecodeError and surfaced as a hook error.
+# @@Changelog        :  Every git stash subcommand is allowed (stash drop no longer needs -C); stash clear is allowed only as `git -C <abs-dir> stash clear`; every git -C <abs-dir> branch form was already allowed and stays so. Allow `git -C <abs-dir> branch -D`; the unscoped form stays blocked. Allow `git -C <abs-dir> push --delete` (never --mirror) and `git -C <abs-dir> stash drop`; stash clear and every unscoped form stay blocked. Decode the stdin payload file as UTF-8 with replacement and fail open on any parse exception (not only JSONDecodeError) — a non-UTF-8 byte previously raised UnicodeDecodeError and surfaced as a hook error.
 # @@TODO             :  None
 # @@Other            :  git rebase --abort/--continue/--skip are exempt — they resolve an already-started rebase rather than starting a new history rewrite.
 # @@Resource         :  local_system_zone.md - "Still hard - no exception, ever"
@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202611220002-git"
+VERSION="202611261200-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 set -euo pipefail
 
@@ -264,10 +264,11 @@ def violation(clean_tokens):
         return None
 
     if sub == "stash":
-        if args and args[0] == "clear":
-            return "git stash clear discards every stashed entry (bulk clear stays blocked)"
-        if args and args[0] == "drop" and not has_abs_c_dir(pre):
-            return "git stash drop is allowed only as git -C {dir} stash drop"
+        # Every stash subcommand is allowed: stashes are local scratch, and work
+        # only ever lands on main through gitcommit. The one bulk-discard form,
+        # `stash clear`, needs the `git -C {abs-dir}` scoping like `branch -D`.
+        if args and args[0] == "clear" and not has_abs_c_dir(pre):
+            return "git stash clear is allowed only as git -C {dir} stash clear"
         return None
 
     if sub == "push":
@@ -327,7 +328,7 @@ for sub_cmd in re.split(r"[\n;]|&&|\|\||[|&]", cmd):
         msg = (
             f"BLOCKED: history-rewriting/destructive git operation ({reason}).\n\n"
             "git clean -f*, git rebase, git tag -d, git filter-repo,\n"
-            "git filter-branch, git commit --amend, git stash clear, git update-ref -d,\n"
+            "git filter-branch, git commit --amend, an unscoped git stash clear, git update-ref -d,\n"
             "git reflog expire, and git gc --prune all discard commits/work or rewrite\n"
             "history, so they require explicit user\n"
             "confirmation before ever running - even inside the Local System\n"
@@ -336,8 +337,8 @@ for sub_cmd in re.split(r"[\n;]|&&|\|\||[|&]", cmd):
             "other command that discards commits, discards uncommitted work, or\n"
             "rewrites history\").\n\n"
             "Allowed with an absolute repo path: git -C {dir} push --delete <remote>\n"
-            "<ref>, git -C {dir} stash drop and git -C {dir} branch -D (never --mirror,\n"
-            "never stash clear).\n\n"
+            "<ref>, git -C {dir} stash clear and git -C {dir} branch -D (never --mirror);\n"
+            "every other git branch and git stash form (including stash drop) is allowed.\n\n"
             "Ask the user to confirm, then have them run the command manually -\n"
             "this hook cannot grant a one-time exception."
         )

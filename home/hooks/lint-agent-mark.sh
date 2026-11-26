@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202609170001-git
+##@Version           :  202611261200-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, August 30, 2026 22:00 EDT
 # @@File             :  lint-agent-mark.sh
 # @@Description      :  SubagentStop hook: records the lint gate satisfied when script-lint/go-lint/rust-lint reports a clean result.
-# @@Changelog        :  realpath-normalise the recorded project path so it matches enforce-test-lint-gate.sh's realpath comparison under symlinked checkouts.
+# @@Changelog        :  Marker lines now carry the epoch (`epoch<TAB>project`) so enforce-test-lint-gate.sh can reject lint evidence older than the last code change. Earlier: realpath-normalise the recorded project path so it matches enforce-test-lint-gate.sh's realpath comparison under symlinked checkouts.
 # @@TODO             :  None
 # @@Other            :  Lint agents always end their report `: clean`, `: 0 new issue(s) found (M pre-existing...)`, or `: N new issue(s) found` — last_assistant_message is checked against that; a nonzero new-issue count skips the marker, pre-existing-only never does.
 # @@Resource         :  CLAUDE.md - Commit Workflow (Lint gate), home/hooks/test-lint-mark.sh, home/hooks/enforce-test-lint-gate.sh
@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202609170001-git"
+VERSION="202611261200-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 set -euo pipefail
 
@@ -128,7 +128,7 @@ find "${TMPDIR:-/tmp}/claude-hooks/test-lint-guard" -maxdepth 1 -type d -mtime +
 
 LINT_AGENT_MARK_MARKER="$LINT_AGENT_MARK_DIR/lint"
 for LINT_AGENT_MARK_PROJECT in "${LINT_AGENT_MARK_PROJECTS[@]}"; do
-  grep -qxF -- "$LINT_AGENT_MARK_PROJECT" "$LINT_AGENT_MARK_MARKER" 2>/dev/null || printf '%s\n' "$LINT_AGENT_MARK_PROJECT" >>"$LINT_AGENT_MARK_MARKER"
+  printf '%s\t%s\n' "$(date +%s)" "$LINT_AGENT_MARK_PROJECT" >>"$LINT_AGENT_MARK_MARKER"
 done
 
 exit 0

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202611220005-git
+##@Version           :  202611261200-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, August 30, 2026 22:00 EDT
 # @@File             :  enforce-test-lint-gate.sh
 # @@Description      :  PreToolUse Bash hook: blocks the commit wrapper's `--dir <path> all` form unless the test and lint gates ran and passed this session for that project.
-# @@Changelog        :  A spec-collection project with no root-level .md to re-read (nothing to test or read) no longer blocks the commit. Decode the stdin payload file as UTF-8 with replacement and fail open on any parse exception (not only JSONDecodeError) — a non-UTF-8 byte previously raised UnicodeDecodeError and surfaced as a hook error.
+# @@Changelog        :  Stricter evidence: a command only counts when a segment that does not start with a reader/printer (echo, grep, cat, ...) matches the gate pattern; evidence older than the newest changed code file (git status, docs and meta files excluded) is stale and blocks; `make lint` counts as lint evidence for projects other than Go/Rust (their *_conventions.md lint target; Go/Rust keep the lint agents); the block message names make/Docker forms instead of host commands. A spec-collection project with no root-level .md to re-read (nothing to test or read) no longer blocks the commit. Decode the stdin payload file as UTF-8 with replacement and fail open on any parse exception (not only JSONDecodeError) — a non-UTF-8 byte previously raised UnicodeDecodeError and surfaced as a hook error.
 # @@TODO             :  None
 # @@Other            :  Pairs with test-lint-mark.sh's per-session markers; a project-type heuristic picks the test path (manifest, script-collection re-read, or *.md fallback). TEST_LINT_GATE_OVERRIDE=1 <gitcommit ...> bypasses the gate for that one call — user-directed only, never Claude's own initiative.
 # @@Resource         :  CLAUDE.md - Commit Workflow, home/hooks/test-lint-mark.sh, home/hooks/spec-guard.sh
@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202611220005-git"
+VERSION="202611261200-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 set -euo pipefail
 
@@ -41,7 +41,9 @@ import json
 import os
 import re
 import shlex
+import subprocess
 import sys
+from datetime import datetime
 
 with open(sys.argv[1], "r", encoding="utf-8", errors="replace") as _f:
     raw = _f.read()
@@ -150,12 +152,33 @@ marker_dir = os.path.join(tmp_root, "claude-hooks", "test-lint-guard", session_i
 spec_guard_marker = os.path.join(tmp_root, "claude-hooks", "spec-guard", session_id, "read")
 
 
-def marked(marker_file, project):
+def marked_epoch(marker_file, project):
+    # Marker lines are `epoch<TAB>project`; a legacy bare `project` line (older
+    # hook version) takes the marker file's mtime. Returns the newest epoch for
+    # the project, or None when the project is not marked.
+    best = None
     try:
         with open(marker_file) as f:
-            return any(line.rstrip("\n") == project for line in f)
+            mtime = os.path.getmtime(marker_file)
+            for line in f:
+                line = line.rstrip("\n")
+                if "\t" in line:
+                    ep, _sep, proj = line.partition("\t")
+                    try:
+                        ep = float(ep)
+                    except ValueError:
+                        ep = mtime
+                else:
+                    ep, proj = mtime, line
+                if proj == project:
+                    best = ep if best is None else max(best, ep)
     except OSError:
-        return False
+        return None
+    return best
+
+
+def marked(marker_file, project):
+    return marked_epoch(marker_file, project) is not None
 
 
 # Fallback for the confirmed upstream bug (anthropics/claude-code#36310,
@@ -179,6 +202,48 @@ TEST_CMD_RE = re.compile(
     r"|\bmix\s+test\b"
 )
 BASHN_RE = re.compile(r"\bbash\s+-n\b")
+MAKE_LINT_RE = re.compile(r"\bmake\s+lint\b")
+SEGMENT_SPLIT_RE = re.compile(r"&&|\|\||;|\||\n")
+WRAPPER_WORDS = {"command", "env", "exec", "nohup", "time", "sudo", "doas"}
+INERT_HEADS = {
+    "echo", "printf", "cat", "grep", "egrep", "fgrep", "rg", "less", "more", "head", "tail",
+    "sed", "awk", "man", "which", "type", "whereis", "ls", "find", "jq", "wc", "diff", "git",
+}
+
+
+def cmd_matches(regex, cmd):
+    # True when any command segment that does not start with a reader/printer
+    # matches the regex: a command that only echoes or greps a gate command is
+    # never evidence that the gate ran.
+    for seg in SEGMENT_SPLIT_RE.split(cmd):
+        toks = seg.split()
+        while toks and (toks[0] in WRAPPER_WORDS or re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", toks[0]) or toks[0].startswith("\\")):
+            toks = toks[1:]
+        if not toks:
+            continue
+        if os.path.basename(toks[0]) in INERT_HEADS:
+            continue
+        if regex.search(" ".join(toks)):
+            return True
+    return False
+
+
+UNKNOWN_TS = float("inf")
+
+
+def parse_ts(value):
+    # Transcript entries carry an ISO 8601 timestamp; an unparsable one is
+    # treated as fresh so a transcript format change never false-blocks.
+    if not isinstance(value, str) or not value:
+        return UNKNOWN_TS
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return UNKNOWN_TS
+
+
+def later(current, ts):
+    return ts if current is None else max(current, ts)
 # Must stay in sync with test-lint-mark.sh's TEST_LINT_MARK_LINT_RE: the lint
 # agents (shell/Go/Rust), `npm run lint`/`npx eslint` (Node/TS gate per
 # node_typescript_conventions.md), `ruff check`/`ruff format --check` (Python
@@ -242,12 +307,13 @@ def _mentions(text, project):
 
 def transcript_pass(transcript_path, project, allow_bashn_as_test):
     if not transcript_path or not os.path.isfile(transcript_path):
-        return False, False
+        return None, None
     tool_use_cmds = {}
     lint_agent_ids = {}
     agent_prompts = {}
-    test_ok = False
-    lint_ok = False
+    test_ts = None
+    lint_ts = None
+    lint_mkcheck_ok = not (os.path.isfile(os.path.join(project, "go.mod")) or os.path.isfile(os.path.join(project, "Cargo.toml")))
     # Async hand-back delivery is NOT a "user" transcript entry — confirmed
     # against a live transcript (2.1.277): it lands as a "type":"attachment"
     # entry whose rendered[].content carries the "<agent-message from=...>
@@ -267,6 +333,7 @@ def transcript_pass(transcript_path, project, allow_bashn_as_test):
                     continue
                 if not isinstance(entry, dict):
                     continue
+                entry_ts = parse_ts(entry.get("timestamp"))
                 etype = entry.get("type")
                 # "message" (and its "content") can legitimately be null or a
                 # non-list in some transcript entries (e.g. summary/system
@@ -305,7 +372,7 @@ def transcript_pass(transcript_path, project, allow_bashn_as_test):
                     if not (cwd_match or _mentions(prompt_, project) or _mentions(text_, project)):
                         continue
                     if LINT_AGENT_CLEAN_RE.search(text_) and not LINT_AGENT_ISSUES_RE.search(text_):
-                        lint_ok = True
+                        lint_ts = later(lint_ts, entry_ts)
                 elif etype == "user":
                     entry_cwd = entry.get("cwd", "")
                     try:
@@ -344,7 +411,7 @@ def transcript_pass(transcript_path, project, allow_bashn_as_test):
                             if not (cwd_match or _mentions(prompt_, project) or _mentions(text_, project)):
                                 continue
                             if LINT_AGENT_CLEAN_RE.search(text_) and not LINT_AGENT_ISSUES_RE.search(text_):
-                                lint_ok = True
+                                lint_ts = later(lint_ts, entry_ts)
                             continue
                         if c.get("type") != "tool_result" or c.get("is_error"):
                             continue
@@ -360,22 +427,22 @@ def transcript_pass(transcript_path, project, allow_bashn_as_test):
                             if LINT_AGENT_CLEAN_RE.search(report_) and not LINT_AGENT_ISSUES_RE.search(
                                 report_
                             ):
-                                lint_ok = True
+                                lint_ts = later(lint_ts, entry_ts)
                             continue
                         cmd_ = tool_use_cmds.get(tool_use_id_)
                         if not cmd_:
                             continue
                         if not (cwd_match or _mentions(cmd_, project)):
                             continue
-                        if TEST_CMD_RE.search(cmd_):
-                            test_ok = True
-                        if allow_bashn_as_test and BASHN_RE.search(cmd_):
-                            test_ok = True
-                        if LINT_CMD_RE.search(cmd_):
-                            lint_ok = True
+                        if cmd_matches(TEST_CMD_RE, cmd_):
+                            test_ts = later(test_ts, entry_ts)
+                        if allow_bashn_as_test and cmd_matches(BASHN_RE, cmd_):
+                            test_ts = later(test_ts, entry_ts)
+                        if cmd_matches(LINT_CMD_RE, cmd_) or (lint_mkcheck_ok and cmd_matches(MAKE_LINT_RE, cmd_)):
+                            lint_ts = later(lint_ts, entry_ts)
     except OSError:
-        return False, False
-    return test_ok, lint_ok
+        return None, None
+    return test_ts, lint_ts
 
 
 def has_shell_scripts(root):
@@ -450,6 +517,58 @@ def has_readable_spec(root):
         return False
 
 
+# Docs and repo metadata never need a test or lint run, so editing them does not
+# make earlier gate evidence stale.
+DOC_SUFFIXES = (".md", ".txt")
+DOC_NAMES = {"LICENSE", "COMMIT_MESS", ".gitignore", ".gitattributes", ".editorconfig", ".no_push"}
+
+
+def newest_code_mtime(project):
+    # Newest mtime among files `git status` reports as changed (docs and meta
+    # excluded). Fails open (0.0) when git is missing, the path is not a repo,
+    # or git errors.
+    try:
+        out = subprocess.run(
+            ["git", "-C", project, "status", "--porcelain", "-z", "--untracked-files=all"],
+            capture_output=True, timeout=20,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return 0.0
+    if out.returncode != 0:
+        return 0.0
+    newest = 0.0
+    parts = out.stdout.decode("utf-8", "replace").split("\0")
+    i = 0
+    while i < len(parts):
+        entry = parts[i]
+        i += 1
+        if len(entry) < 4:
+            continue
+        status, path = entry[:2], entry[3:]
+        if status[0] in "RC":
+            i += 1
+        if "D" in status:
+            continue
+        base = os.path.basename(path)
+        if path.endswith(DOC_SUFFIXES) or base in DOC_NAMES or base.startswith("LICENSE"):
+            continue
+        try:
+            newest = max(newest, os.path.getmtime(os.path.join(project, path)))
+        except OSError:
+            continue
+    return newest
+
+
+def evidence_epoch(marker_file, transcript_ts, project):
+    # Newest evidence epoch from the marker or the transcript, or None.
+    marker_ep = marked_epoch(marker_file, project)
+    if marker_ep is None:
+        return transcript_ts
+    if transcript_ts is None:
+        return marker_ep
+    return max(marker_ep, transcript_ts)
+
+
 blocked = []
 for target in targets:
     project = os.path.realpath(os.path.expanduser(target))
@@ -468,13 +587,18 @@ for target in targets:
         continue
 
     manifests_present = has_any_manifest(project)
-    transcript_test_ok, transcript_lint_ok = transcript_pass(
+    transcript_test_ts, transcript_lint_ts = transcript_pass(
         transcript_path, project, allow_bashn_as_test=not manifests_present
     )
+    test_epoch = evidence_epoch(os.path.join(marker_dir, "test"), transcript_test_ts, project)
+    lint_epoch = evidence_epoch(os.path.join(marker_dir, "lint"), transcript_lint_ts, project)
+    code_mtime = newest_code_mtime(project)
 
     missing = []
-    if not marked(os.path.join(marker_dir, "test"), project) and not transcript_test_ok:
+    if test_epoch is None:
         missing.append("test gate")
+    elif code_mtime > test_epoch + 1:
+        missing.append("test gate (stale: code changed after the last passing run)")
     # Every manifest language has a documented lint gate — go-lint/rust-lint/
     # script-lint agents for Go/Rust/shell, `npm run lint` for Node/TS
     # (node_typescript_conventions.md), `ruff check` + `ruff format --check`
@@ -483,12 +607,11 @@ for target in targets:
     # or shell script in the tree means the lint gate is both defined and
     # satisfiable.
     has_defined_lint_target = manifests_present or has_shell_scripts(project)
-    if (
-        has_defined_lint_target
-        and not marked(os.path.join(marker_dir, "lint"), project)
-        and not transcript_lint_ok
-    ):
-        missing.append("lint gate")
+    if has_defined_lint_target:
+        if lint_epoch is None:
+            missing.append("lint gate")
+        elif code_mtime > lint_epoch + 1:
+            missing.append("lint gate (stale: code changed after the last passing run)")
     if missing:
         blocked.append(f"{project}: {' and '.join(missing)} has not run (and passed) this session")
 
@@ -500,10 +623,11 @@ for b in blocked:
     msg_lines.append(f"  - {b}")
 msg_lines.append("")
 msg_lines.append(
-    "Run the project's test gate (make test / go test ./... / cargo test / pytest /\n"
-    "npm test / bash -n for script-collection) and lint gate (script-lint / go-lint /\n"
-    "rust-lint via the Agent tool — or `npm run lint` for Node/TS, `ruff check` +\n"
-    "`ruff format --check` for Python; never `make lint`) first, then retry gitcommit."
+    "Run the project's test gate (make test; bash -n for script-collection) and lint\n"
+    "gate (script-lint / go-lint / rust-lint via the Agent tool for shell/Go/Rust, or\n"
+    "make lint for the other languages) first, then retry gitcommit. Gates run in\n"
+    "Docker via make, never directly on the host; a run older than the last code\n"
+    "change (docs and meta files excluded) is stale and must be repeated."
 )
 msg = "\n".join(msg_lines)
 print(msg)

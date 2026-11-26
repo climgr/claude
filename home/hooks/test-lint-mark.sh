@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202609171200-git
+##@Version           :  202611261200-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, August 30, 2026 22:00 EDT
 # @@File             :  test-lint-mark.sh
 # @@Description      :  PostToolUse Bash hook: records per session/project that a test-gate or lint-gate command exited 0, pairing with enforce-test-lint-gate.sh.
-# @@Changelog        :  Fixed a bug where this hook never wrote a marker for any command, pass or fail: the success check read a nonexistent .tool_response.exit_code field, which jq always defaulted to 1 via `// 1`. Replaced with a check of whether tool_response is an object (success) vs. a bare error string (nonzero exit) — the field Bash's tool_response actually carries, confirmed live. Previously test/lint patterns and the script-collection manifest disqualifier list were expanded to also recognize Kotlin/Gradle, Java/Maven, Ruby, PHP, Swift, Dart/Flutter, C/C++, .NET, and Elixir — kept in sync with enforce-test-lint-gate.sh's MANIFESTS/TEST_CMD_RE/LINT_CMD_RE.
+# @@Changelog        :  Evidence matching is now segment-aware (a command that only echoes/greps/prints a gate command no longer counts), `make lint` counts as lint evidence for non-Go/Rust projects (their *_conventions.md lint target; Go/Rust keep the lint-agent gate), and every marker line carries the epoch so the gate can reject evidence older than the last code change. Earlier: Fixed a bug where this hook never wrote a marker for any command, pass or fail: the success check read a nonexistent .tool_response.exit_code field, which jq always defaulted to 1 via `// 1`. Replaced with a check of whether tool_response is an object (success) vs. a bare error string (nonzero exit) — the field Bash's tool_response actually carries, confirmed live. Previously test/lint patterns and the script-collection manifest disqualifier list were expanded to also recognize Kotlin/Gradle, Java/Maven, Ruby, PHP, Swift, Dart/Flutter, C/C++, .NET, and Elixir — kept in sync with enforce-test-lint-gate.sh's MANIFESTS/TEST_CMD_RE/LINT_CMD_RE.
 # @@TODO             :  None
 # @@Other              :  Only marks when tool_response is an object and interrupted == false — a failed or timed-out run must never count as passing.
 # @@Resource         :  CLAUDE.md - Commit Workflow (Test gate, Lint gate), home/hooks/spec-guard-mark.sh
@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202609171200-git"
+VERSION="202611261200-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 set -euo pipefail
 
@@ -62,9 +62,41 @@ TEST_LINT_MARK_SESSION_ID=$(printf '%s' "$TEST_LINT_MARK_INPUT" | jq -r 'try (.s
 [ -z "$TEST_LINT_MARK_CMD" ] && exit 0
 [ -z "$TEST_LINT_MARK_SESSION_ID" ] && exit 0
 
+# __test_lint_mark_matches <regex> <command> — succeeds when any command
+# segment (split on && || ; |) that does not start with a reader/printer
+# (echo, grep, cat, ...) matches the regex, so a command that merely mentions a
+# gate command is never evidence that the gate ran.
+__test_lint_mark_matches() {
+  local re="$1" cmd="$2" seg first
+  while IFS= read -r seg; do
+    seg="${seg#"${seg%%[![:space:]]*}"}"
+    [ -z "$seg" ] && continue
+    while :; do
+      first="${seg%%[[:space:]]*}"
+      case "$first" in
+        [A-Za-z_]*=*|command|env|exec|nohup|time|sudo|doas|\\*)
+          seg="${seg#"$first"}"
+          seg="${seg#"${seg%%[![:space:]]*}"}"
+          [ -z "$seg" ] && break
+          ;;
+        *) break ;;
+      esac
+    done
+    [ -z "$seg" ] && continue
+    first="${seg%%[[:space:]]*}"
+    first="${first##*/}"
+    case "$first" in
+      echo|printf|cat|grep|egrep|fgrep|rg|less|more|head|tail|sed|awk|man|which|type|whereis|ls|find|jq|wc|diff|git) continue ;;
+    esac
+    printf '%s' "$seg" | grep -qE -- "$re" && return 0
+  done < <(printf '%s\n' "$cmd" | sed -E 's/(&&|\|\||;|\|)/\n/g')
+  return 1
+}
+
 TEST_LINT_MARK_IS_TEST=0
 TEST_LINT_MARK_IS_LINT=0
 TEST_LINT_MARK_IS_BASHN=0
+TEST_LINT_MARK_IS_MAKELINT=0
 TEST_LINT_MARK_TEST_RE='\bmake[[:space:]]+test\b|\bgo[[:space:]]+test\b'
 TEST_LINT_MARK_TEST_RE="${TEST_LINT_MARK_TEST_RE}|\bcargo[[:space:]]+test\b|\bpytest\b"
 TEST_LINT_MARK_TEST_RE="${TEST_LINT_MARK_TEST_RE}|\bnpm[[:space:]]+(run[[:space:]]+)?test\b"
@@ -76,10 +108,8 @@ TEST_LINT_MARK_TEST_RE="${TEST_LINT_MARK_TEST_RE}|\bphpunit\b|\bcomposer[[:space
 TEST_LINT_MARK_TEST_RE="${TEST_LINT_MARK_TEST_RE}|\bswift[[:space:]]+test\b"
 TEST_LINT_MARK_TEST_RE="${TEST_LINT_MARK_TEST_RE}|\bflutter[[:space:]]+test\b|\bdart[[:space:]]+test\b"
 TEST_LINT_MARK_TEST_RE="${TEST_LINT_MARK_TEST_RE}|\bctest\b|\bdotnet[[:space:]]+test\b|\bmix[[:space:]]+test\b"
-printf '%s' "$TEST_LINT_MARK_CMD" | grep -qE -- "$TEST_LINT_MARK_TEST_RE" \
-  && TEST_LINT_MARK_IS_TEST=1
-printf '%s' "$TEST_LINT_MARK_CMD" | grep -qE -- '\bbash[[:space:]]+-n\b' \
-  && TEST_LINT_MARK_IS_BASHN=1
+__test_lint_mark_matches "$TEST_LINT_MARK_TEST_RE" "$TEST_LINT_MARK_CMD" && TEST_LINT_MARK_IS_TEST=1
+__test_lint_mark_matches '\bbash[[:space:]]+-n\b' "$TEST_LINT_MARK_CMD" && TEST_LINT_MARK_IS_BASHN=1
 # Lint gates: script-lint/go-lint/rust-lint agents (shell/Go/Rust), `npm run
 # lint` (node_typescript_conventions.md's Node/TS gate, `npx eslint` as its
 # direct form), `ruff check` / `ruff format --check` (python_conventions.md's
@@ -106,10 +136,14 @@ TEST_LINT_MARK_LINT_RE="${TEST_LINT_MARK_LINT_RE}|\bflutter[[:space:]]+analyze\b
 TEST_LINT_MARK_LINT_RE="${TEST_LINT_MARK_LINT_RE}|\bclang-tidy\b|\bcppcheck\b"
 TEST_LINT_MARK_LINT_RE="${TEST_LINT_MARK_LINT_RE}|\bdotnet[[:space:]]+format[[:space:]]+--verify-no-changes\b"
 TEST_LINT_MARK_LINT_RE="${TEST_LINT_MARK_LINT_RE}|\bmix[[:space:]]+credo\b|\bmix[[:space:]]+format[[:space:]]+--check-formatted\b"
-printf '%s' "$TEST_LINT_MARK_CMD" | grep -qE -- "$TEST_LINT_MARK_LINT_RE" \
-  && TEST_LINT_MARK_IS_LINT=1
+__test_lint_mark_matches "$TEST_LINT_MARK_LINT_RE" "$TEST_LINT_MARK_CMD" && TEST_LINT_MARK_IS_LINT=1
+# `make lint` is the lint target the Node/TS, Python, Kotlin, Java, Ruby, PHP,
+# Swift, Dart, C/C++, .NET and Elixir *_conventions.md files define (it runs
+# the linters inside Docker). Go, Rust and shell keep the lint-agent gate, so
+# `make lint` only counts once the project is known not to be one of those.
+__test_lint_mark_matches '\bmake[[:space:]]+lint\b' "$TEST_LINT_MARK_CMD" && TEST_LINT_MARK_IS_MAKELINT=1
 
-[ "$TEST_LINT_MARK_IS_TEST" = "1" ] || [ "$TEST_LINT_MARK_IS_BASHN" = "1" ] || [ "$TEST_LINT_MARK_IS_LINT" = "1" ] || exit 0
+[ "$TEST_LINT_MARK_IS_TEST" = "1" ] || [ "$TEST_LINT_MARK_IS_BASHN" = "1" ] || [ "$TEST_LINT_MARK_IS_LINT" = "1" ] || [ "$TEST_LINT_MARK_IS_MAKELINT" = "1" ] || exit 0
 
 TEST_LINT_MARK_PROJECT=$(git -C "${TEST_LINT_MARK_CWD:-.}" rev-parse --show-toplevel 2>/dev/null) \
   || TEST_LINT_MARK_PROJECT="$TEST_LINT_MARK_CWD"
@@ -119,6 +153,10 @@ TEST_LINT_MARK_PROJECT=$(git -C "${TEST_LINT_MARK_CWD:-.}" rev-parse --show-topl
 # written under a symlinked/un-normalized path never matches the reader's
 # realpath'd key and the gate falsely reports the test/lint gate as unrun.
 TEST_LINT_MARK_PROJECT=$(realpath -- "$TEST_LINT_MARK_PROJECT" 2>/dev/null) || :
+
+if [ "$TEST_LINT_MARK_IS_MAKELINT" = "1" ] && [ ! -f "$TEST_LINT_MARK_PROJECT/go.mod" ] && [ ! -f "$TEST_LINT_MARK_PROJECT/Cargo.toml" ]; then
+  TEST_LINT_MARK_IS_LINT=1
+fi
 
 # `bash -n` only satisfies the test gate for script-collection projects
 # (home/CLAUDE.md's Test gate line) — a project with a real test runner
@@ -162,14 +200,12 @@ find "${TMPDIR:-/tmp}/claude-hooks/test-lint-guard" -maxdepth 1 -type d -mtime +
 
 if [ "$TEST_LINT_MARK_IS_TEST" = "1" ]; then
   TEST_LINT_MARK_TEST_MARKER="$TEST_LINT_MARK_DIR/test"
-  grep -qxF -- "$TEST_LINT_MARK_PROJECT" "$TEST_LINT_MARK_TEST_MARKER" 2>/dev/null \
-    || printf '%s\n' "$TEST_LINT_MARK_PROJECT" >>"$TEST_LINT_MARK_TEST_MARKER"
+  printf '%s\t%s\n' "$(date +%s)" "$TEST_LINT_MARK_PROJECT" >>"$TEST_LINT_MARK_TEST_MARKER"
 fi
 
 if [ "$TEST_LINT_MARK_IS_LINT" = "1" ]; then
   TEST_LINT_MARK_LINT_MARKER="$TEST_LINT_MARK_DIR/lint"
-  grep -qxF -- "$TEST_LINT_MARK_PROJECT" "$TEST_LINT_MARK_LINT_MARKER" 2>/dev/null \
-    || printf '%s\n' "$TEST_LINT_MARK_PROJECT" >>"$TEST_LINT_MARK_LINT_MARKER"
+  printf '%s\t%s\n' "$(date +%s)" "$TEST_LINT_MARK_PROJECT" >>"$TEST_LINT_MARK_LINT_MARKER"
 fi
 
 exit 0

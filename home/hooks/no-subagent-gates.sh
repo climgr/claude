@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202610070230-git
+##@Version           :  202611261200-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Wednesday, October 07, 2026 12:00 EDT
 # @@File             :  no-subagent-gates.sh
 # @@Description      :  PreToolUse hook: blocks make and test-runner commands when the top-level agent_id field is present, enforcing "agents never run tests, builds, or gates".
-# @@Changelog        :  Log the caller agent_id, agent_type, and payload keys on every block, to diagnose a main session blocked in error.
+# @@Changelog        :  Also blocks the template test-tier scripts (tests/run_tests.sh, docker.sh, incus.sh, virt.sh, e2e.sh, directly or through bash/sh) and the swift, flutter, dart, composer, rake and bundle exec test runners, matching the language conventions' test targets. Log the caller agent_id, agent_type, and payload keys on every block, to diagnose a main session blocked in error.
 # @@TODO             :  None
 # @@Other            :  Mirrors no-subagent-commit.sh; the main session owns the test gate, the lint gate, and the commit.
 # @@Resource         :  CLAUDE.md - Agent Usage - "Agents never run tests, builds, or gates"
@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202610070230-git"
+VERSION="202611261200-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 set -uo pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -88,6 +88,11 @@ WRAPPER_PREFIXES = {"command", "env", "exec", "nohup", "time", "sudo", "doas"}
 CONTAINER_HEADS = {"docker", "podman", "incus", "lxc", "nsenter", "chroot", "distrobox", "toolbox"}
 BARE_RUNNERS = {"make", "gmake", "pytest", "py.test", "rspec", "phpunit", "ctest", "nosetests", "tox"}
 JS_RUNNERS = {"npm", "yarn", "pnpm", "bun"}
+# The template test tiers (tests/run_tests.sh basic tier, incus.sh, virt.sh,
+# e2e.sh, docker.sh): developer-initiated runs that start containers or VMs, so
+# a subagent never launches them any more than it runs make test.
+TIER_SCRIPT_RE = re.compile(r"(^|/)tests/(run_tests|docker|incus|virt|e2e)\.sh$")
+SHELL_HEADS = {"bash", "sh", "zsh", "dash", "ksh"}
 
 
 def strip_heredoc_bodies(text):
@@ -126,7 +131,11 @@ def strip_heredoc_bodies(text):
 cmd = strip_heredoc_bodies(cmd)
 
 # Cheap pre-filter: nothing resembling a gate command anywhere -> allow.
-if not re.search(r"\b(make|gmake|pytest|py\.test|rspec|phpunit|ctest|nosetests|tox|test|nextest|clippy|mvn|gradle|dotnet|mix)\b", cmd):
+GATE_WORD_RE = (
+    r"\b(make|gmake|pytest|py\.test|rspec|phpunit|ctest|nosetests|tox|test|nextest|clippy|mvn|gradle|dotnet|mix"
+    r"|swift|flutter|dart|composer|rake|bundle)\b|tests/"
+)
+if not re.search(GATE_WORD_RE, cmd):
     sys.exit(0)
 
 
@@ -152,6 +161,16 @@ def is_gate(tokens):
     head = tokens[0].rsplit("/", 1)[-1]
     if head in BARE_RUNNERS:
         return True
+    if TIER_SCRIPT_RE.search(tokens[0]):
+        return True
+    if head in SHELL_HEADS and any(TIER_SCRIPT_RE.search(t) for t in tokens[1:3]):
+        return True
+    if head in ("swift", "flutter", "dart", "composer", "rake"):
+        return has_pair(tokens, head, {"test"})
+    if head == "bundle":
+        return has_pair(tokens, "bundle", {"exec"}) and any(
+            t.rsplit("/", 1)[-1] in ("rspec", "rake") for t in tokens[1:6]
+        )
     if head == "go":
         return has_pair(tokens, "go", {"test"})
     if head == "cargo":
@@ -178,8 +197,12 @@ def is_gate(tokens):
         rest = tokens[1:]
         if any(t.rsplit("/", 1)[-1] in BARE_RUNNERS for t in rest):
             return True
+        if any(TIER_SCRIPT_RE.search(t) for t in rest):
+            return True
         for first, seconds in (("go", {"test"}), ("cargo", {"test", "nextest", "clippy"}),
-                               ("npm", {"test"}), ("yarn", {"test"}), ("pnpm", {"test"})):
+                               ("npm", {"test"}), ("yarn", {"test"}), ("pnpm", {"test"}),
+                               ("swift", {"test"}), ("flutter", {"test"}), ("dart", {"test"}),
+                               ("composer", {"test"}), ("rake", {"test"})):
             if has_pair(rest, first, seconds):
                 return True
     return False

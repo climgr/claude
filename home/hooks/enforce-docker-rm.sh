@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202609170001-git
+##@Version           :  202611261200-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,14 +10,14 @@
 # @@Created          :  Thursday, May 15, 2026 00:00 EDT
 # @@File             :  enforce-docker-rm.sh
 # @@Description      :  PreToolUse hook: block docker run without --rm/--name and incus launch/init without an instance name (prevents orphaned/untargetable containers)
-# @@Changelog        :  Decode the stdin payload file as UTF-8 with replacement and fail open on any parse exception (not only JSONDecodeError) — a non-UTF-8 byte previously raised UnicodeDecodeError and surfaced as a hook error. Never elide a heredoc body on a line with a pipe, $( or backtick (cat <<EOF | bash routes the body into a host shell), matching the other heredoc-aware hooks.
+# @@Changelog        :  incus launch/init now also requires the resource caps the template test scripts set (limits.cpu, limits.memory and, for containers, limits.cpu.priority) unless a profile is given. Decode the stdin payload file as UTF-8 with replacement and fail open on any parse exception (not only JSONDecodeError) — a non-UTF-8 byte previously raised UnicodeDecodeError and surfaced as a hook error. Never elide a heredoc body on a line with a pipe, $( or backtick (cat <<EOF | bash routes the body into a host shell), matching the other heredoc-aware hooks.
 # @@TODO             :  None
 # @@Other            :  --rm is exempt for detached (-d/--detach) containers so tests can inspect a crashed container's logs before teardown; --name stays mandatory either way
 # @@Resource         :
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202609170001-git"
+VERSION="202611261200-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 set -euo pipefail
 
@@ -221,6 +221,31 @@ for sub in sub_cmds:
         if len(positionals) < 2:
             short = " ".join(clean[:6]) + (" ..." if len(clean) > 6 else "")
             violations.append((short, ["instance name"]))
+        # Resource caps (execution_hierarchy.md): a test instance must not
+        # starve the host, so every launch carries limits.cpu and
+        # limits.memory, plus limits.cpu.priority for a container (the
+        # priority key is container-only; a VM relies on the two caps). A
+        # named profile may carry the limits, so it skips the check.
+        cfg_keys = set()
+        has_profile = False
+        args = clean[2:]
+        for idx, t in enumerate(args):
+            if t in ("-p", "--profile") or t.startswith("--profile="):
+                has_profile = True
+            val = None
+            if t in ("-c", "--config") and idx + 1 < len(args):
+                val = args[idx + 1]
+            elif t.startswith("--config="):
+                val = t.split("=", 1)[1]
+            if val and "=" in val:
+                cfg_keys.add(val.split("=", 1)[0])
+        if not has_profile:
+            is_vm = "--vm" in args
+            needed = ["limits.cpu", "limits.memory"] + ([] if is_vm else ["limits.cpu.priority"])
+            lacking = [k for k in needed if k not in cfg_keys]
+            if lacking:
+                short = " ".join(clean[:6]) + (" ..." if len(clean) > 6 else "")
+                violations.append((short, ["-c " + k + "=..." for k in lacking]))
         continue
 
     if len(clean) < 2 or clean[1] != "run":
@@ -265,11 +290,14 @@ if not violations:
     sys.exit(0)
 
 msg = (
-    "BLOCKED: container/instance launch missing required naming.\n\n"
+    "BLOCKED: container/instance launch missing required naming or resource caps.\n\n"
     "Every docker container must use --rm (self-remove on exit, no orphans) and\n"
     "--name {project_name}-XXXX; every incus instance must be launched with\n"
     "an explicit {project_name}-XXXX instance name (targeted cleanup by name).\n"
     "XXXX = random 8-char lowercase alphanumeric suffix.\n\n"
+    "Every incus launch also carries resource caps so a test never starves the host:\n"
+    "-c limits.cpu=2 -c limits.memory=4GiB (and -c limits.cpu.priority=2 for a\n"
+    "container; a --vm has no priority key). A -p/--profile that sets them is fine.\n\n"
     "--rm is only exempt for detached (-d/--detach) containers - e.g. a server\n"
     "container a client container/test talks to, kept alive so its logs/state\n"
     "can be inspected after a failure. --name is still mandatory, and anything\n"
@@ -284,7 +312,7 @@ msg += (
     "\nFix patterns:\n"
     "  docker run --rm --name \"{project_name}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" [OPTIONS] IMAGE [COMMAND]\n"
     "  docker run -d --name \"{project_name}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" [OPTIONS] IMAGE [COMMAND]  # integration test, --rm optional\n"
-    "  incus launch [OPTIONS] IMAGE \"$(basename \"$PWD\")-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\"\n\n"
+    "  incus launch IMAGE \"$(basename \"$PWD\")-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" -c limits.cpu=2 -c limits.memory=4GiB -c limits.cpu.priority=2\n\n"
     "If this container must persist after the session (e.g. a user-requested dev environment),\n"
     "confirm with the user first and document the container name/ID."
 )
