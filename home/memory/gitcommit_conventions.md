@@ -63,7 +63,20 @@ No bare `@` handles and no AI attribution trailers (see above). `gitcommit --dir
 
 ## TODO.AI.md Completion
 
-(1) Delete each item from `TODO.AI.md` the moment its task is complete, before the commit, so the committed file never lists finished work (an outdated TODO file in a commit is a defect). (2) The item's deletion is part of the same commit as its task. (3) When the last item is done, delete `TODO.AI.md` itself; that commit uses the title `✅ all todo items have been completed ✅` and a body summarizing what was accomplished. The human-owned `TODO.md` is never emptied or truncated by AI — only individual items are marked done in place.
+**A committed TODO file must be true at the moment of the commit.** A list that still shows finished work, or already hides unfinished work, is misleading, so the list changes in the same commit as the work.
+
+| Rule | Requirement |
+|------|-------------|
+| **Same commit** | The item is deleted from `TODO.AI.md` in the same change that completes it, BEFORE `COMMIT_MESS` is written. The commit that resolves a task never leaves that task in the committed file |
+| **Fail closed** | The removal lands only with a SUCCESSFUL commit. If a gate, hook or push fails, the task is not done: put the item back, fix the cause, repeat. An item never disappears while its work is uncommitted or failing |
+| **Partly done** | An item only partly done is rewritten to the REMAINING work in that commit: never deleted, never left unchanged |
+| **Already satisfied** | An item found already satisfied (the code already does it) is removed in the commit that verifies it, and the message names it |
+| **New work** | A task discovered while working is added in the commit that discovers it (or fixed immediately), never held back for later |
+| **Removed, not marked** | A completed item in `TODO.AI.md` is deleted, never struck through or checked off. In the human-owned `TODO.md` the item is marked done IN PLACE in that same commit, never deleted or emptied by AI |
+| **Before every commit** | Re-read `TODO.AI.md`, `TODO.md` and `PLAN.AI.md` (when they exist) and confirm: nothing this commit completes is still open, nothing is listed done that is not implemented, and nothing was removed whose work is not in the commit. `git diff -- TODO.AI.md` shows each removal next to the code that justifies it |
+| **Subagents** | A subagent never edits or commits a TODO file; the parent does, after reviewing the diff |
+
+Commit sequence (one order): (1) implement the task. (2) Delete its item from `TODO.AI.md` in that same change, before `COMMIT_MESS` is written. (3) Run `gitcommit`. (4) If the commit fails, put the item back, fix the cause, repeat. (5) The commit that deletes the LAST item uses the title `✅ all todo items have been completed ✅` and a body summarizing what was accomplished, so the file is empty only in that commit.
 
 ## Push Behavior
 
