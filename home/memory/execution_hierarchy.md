@@ -58,10 +58,10 @@ Every Incus instance started by AI must follow the same naming schema as Docker 
 {project_name}-XXXX
 ```
 
-where `XXXX` is a random 8-character lowercase alphanumeric suffix — identical to the Docker `--name` convention.
+where `XXXX` is a random 8-character lowercase hex suffix — identical to the Docker `--name` convention.
 
 ```bash
-SUFFIX=$(tr -dc 'a-z0-9' </dev/urandom | head -c8)
+SUFFIX=$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)
 INSTANCE="{project_name}-${SUFFIX}"
 
 incus launch {image} "${INSTANCE}" --network {project_name}-test-net
@@ -74,7 +74,7 @@ Rules:
 - Always generate the suffix before the launch command; store it in a variable
 - The instance name is the primary key for cleanup — record it immediately after launch
 - Never use generic names (`test`, `temp`, `dev`) that cannot be traced to a project
-- In Makefile targets: `SUFFIX=$$(tr -dc 'a-z0-9' </dev/urandom | head -c8)`
+- In Makefile targets: `SUFFIX=$$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)`
 - **Cap every Incus container at launch** — `-c limits.cpu=2 -c limits.memory=4GiB -c limits.cpu.priority=2` (same caps as the Docker `--cpus`/`--memory` limits; the low `limits.cpu.priority` keeps tests from starving the host)
 - **Bound every `incus exec`** with `timeout {seconds}` so a hung command cannot hold the run
 
@@ -128,7 +128,7 @@ Rules:
 Every container or Incus instance started by AI must have an explicit lifetime — never leave one running indefinitely:
 
 - **Test containers / instances:** stop and remove immediately after the test completes (pass or fail)
-- **Build containers:** `--rm --name {project_name}-XXXX` on all `docker run` invocations; self-remove on exit. `XXXX` is a random 8-char lowercase alphanumeric suffix (`$(tr -dc 'a-z0-9' </dev/urandom | head -c8)`) — the suffix prevents "container name already in use" collisions when multiple agents run concurrently, and the name makes targeted cleanup (`docker stop {project_name}-XXXX`) possible when a container hangs. Never launch an unnamed container — an anonymous `--rm` container that hangs can only be found by image-grepping `docker ps`.
+- **Build containers:** `--rm --name {project_name}-XXXX` on all `docker run` invocations; self-remove on exit. `XXXX` is a random 8-character lowercase hex suffix (`$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)`) — the suffix prevents "container name already in use" collisions when multiple agents run concurrently, and the name makes targeted cleanup (`docker stop {project_name}-XXXX`) possible when a container hangs. Never launch an unnamed container — an anonymous `--rm` container that hangs can only be found by image-grepping `docker ps`.
 - **Incus instances:** `incus launch {image} {project_name}-XXXX`; `incus delete --force {project_name}-XXXX` when done; same 8-char random suffix convention as Docker
 - **Long-running service containers (integration tests):** set a `--stop-timeout` and enforce it; if a container has not exited within 60s of `docker stop`, force-kill with `docker kill`
 - **`--rm` exception for multi-container/multi-instance integration testing:** `--rm` (Docker) is required on every build/one-off/unit-test container, no exception. It is optional only on a **detached** (`-d`/`--detach`) container that is part of a comprehensive integration test — e.g. a server container a client container or test suite talks to across several steps. A crashed `--rm` container is wiped before its logs/state can be inspected, which is what makes that kind of testing "impossible" with `--rm` forced; enforced by `enforce-docker-rm.sh`, which exempts `--rm` only when `-d`/`--detach` is present. `--name` stays mandatory in every case, exempt or not. Anything launched without `--rm` still must be torn down explicitly (`docker rm`/`docker rm -f`) once inspection is done, before the task ends — the exception drops the auto-remove flag, never the cleanup obligation. Incus instances are unaffected here: they were never required to pass an ephemeral (`--ephemeral`/`-e`) flag, so a persistent test instance already follows this same "keep it for inspection, delete it explicitly when done" pattern with no hook change needed.
@@ -158,7 +158,7 @@ If the image is not in the registry, do not build it inline — stop and tell th
 
 ## Docker Run Conventions
 
-- **`docker run` must use `--rm --name {project_name}-XXXX`** — every batch build/one-off/unit-test container must self-remove on exit AND carry a name for targeted cleanup. `XXXX` = random 8-char lowercase alphanumeric suffix (`$(tr -dc 'a-z0-9' </dev/urandom | head -c8)`; in Makefiles: `$$(tr -dc 'a-z0-9' </dev/urandom | head -c8)`). The random suffix makes concurrent runs collision-free, and `docker stop {project_name}-XXXX` / `docker ps --filter name={project_name}-` gives precise cleanup without broad sweeps. Never use `-it` for batch commands (breaks CI — no TTY); `-it` is only for interactive shells. **Exception:** a detached (`-d`/`--detach`) container in a multi-container integration test may omit `--rm` (see "Container / Instance Lifetime" above) — `--name` is still required.
+- **`docker run` must use `--rm --name {project_name}-XXXX`** — every batch build/one-off/unit-test container must self-remove on exit AND carry a name for targeted cleanup. `XXXX` = random 8-character lowercase hex suffix (`$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)`; in Makefiles: `$$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)`). The random suffix makes concurrent runs collision-free, and `docker stop {project_name}-XXXX` / `docker ps --filter name={project_name}-` gives precise cleanup without broad sweeps. Never use `-it` for batch commands (breaks CI — no TTY); `-it` is only for interactive shells. **Exception:** a detached (`-d`/`--detach`) container in a multi-container integration test may omit `--rm` (see "Container / Instance Lifetime" above) — `--name` is still required.
 - **Resource limits on all toolchain containers** — always pass `--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS)` where both vars default to `4g` and `2` respectively (overrideable per project or per machine), plus `--cpu-shares=$(DOCKER_CPU_SHARES)` (default `256`, so a build never starves the host's other work), `--no-healthcheck` (a one-shot build container must not poll the image's service HEALTHCHECK), and a `timeout -k 30 $(DOCKER_TIMEOUT)` prefix (default `3600` seconds) so a hung step never holds a container for hours. One container per Makefile target: the whole sequence runs in one `sh -c`, never a container per step or platform. When many Claude Code instances each spawn multiple agents that each launch containers, the machine runs out of CPU/memory without per-container caps.
 - **Go build cache must be project-scoped** — `GO_BUILD ?= $(HOME)/.cache/go-build/$(PROJECTNAME)`. The Go compile cache (`~/.cache/go-build`) is NOT safe for concurrent writes from separate `go` processes; a shared path across projects causes corruption and stalls. The module download cache (`GO_CACHE = ~/go/pkg/mod`) IS safe to share (Go uses file locking for writes). Rust's sccache and cargo registry are also safe to share; the Cargo target dir is NOT — scope it per project (`CARGO_TARGET ?= $(HOME)/.cache/cargo-target/$(PROJECTNAME)`).
 - **Dev images: rolling tags** — never pinned
@@ -166,6 +166,12 @@ If the image is not in the registry, do not build it inline — stop and tell th
 - **Container startup chain: `tini → entrypoint.sh → app`** — never override or bypass; all startup customization goes in `entrypoint.sh`
 - **Test container network isolation** — always create a named bridge network for tests; never use the default bridge or `--network host`
 - **Toolchain containers must mount their package cache** — declare cache paths with `?=` so host env vars with custom locations are honored; `@mkdir -p $(CACHE_DIR)` before every `docker run`; see `makefile_conventions.md` for the full cache-mount table
+
+## Compose Test Stacks
+
+- A compose stack for testing runs from a COPY of the compose file in the project temp directory (`${TMPDIR:-/tmp}/{project_org}/{internal_name}-XXXXXX/`, volumes under that directory's `volumes/`), then `docker compose down` and removing the directory; see `tempdir_conventions.md`
+- Never run docker compose in the project directory, never with `--project-directory` pointing at the project root, and never mount volumes under `{project_root}/volumes/`
+- AI never runs the project's `docker-compose.yml` or `docker-compose.dev.yml` themselves: those are human-only (the temp-dir copy is the test form)
 
 ## Port Binding
 

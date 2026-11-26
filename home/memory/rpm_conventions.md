@@ -207,7 +207,7 @@ the target's mock config defines (including EPEL for EL targets).
 # 1. Start the build container (interactive)
 docker run --rm \
   --privileged \
-  --name rpmbuild-{name}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+  --name rpmbuild-{name}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8) \
   -v "$HOME/rpmbuild:/root/rpmbuild" \
   -v "$HOME/Documents/builds:/root/Documents/builds" \
   -v "$HOME/.rpmmacros:/root/.rpmmacros:ro" \
@@ -245,7 +245,7 @@ Pass either a `.spec` or a `.src.rpm` as the CMD:
 # From a spec file — entrypoint runs spectool + rpmbuild -bs, then mock --rebuild
 docker run --rm \
   --privileged \
-  --name rpmbuild-{name}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+  --name rpmbuild-{name}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8) \
   -v "$HOME/rpmbuild:/root/rpmbuild" \
   -v "$HOME/Documents/builds:/root/Documents/builds" \
   -v "$HOME/.rpmmacros:/root/.rpmmacros:ro" \
@@ -258,7 +258,7 @@ docker run --rm \
 # From a pre-built SRPM — passed directly to mock --rebuild
 docker run --rm \
   --privileged \
-  --name rpmbuild-{name}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+  --name rpmbuild-{name}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8) \
   -v "$HOME/rpmbuild:/root/rpmbuild" \
   -v "$HOME/Documents/builds:/root/Documents/builds" \
   -v "$HOME/.rpmmacros:/root/.rpmmacros:ro" \

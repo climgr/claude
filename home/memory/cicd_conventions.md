@@ -520,13 +520,11 @@ ensure-build-image
 ├── test              (needs: ensure-build-image; skipped on schedule)
 ├── workflow-policy   (needs: ensure-build-image; always runs)
 ├── vuln-scan         (needs: ensure-build-image; conditional on manifest; always runs)
-├── build             (needs: [lint, test]; skipped on schedule)
-├── coverage          (needs: test; skipped on schedule)
-├── image-scan        (needs: build; conditional on Dockerfile; skipped on schedule)
-└── upload-artifacts  (needs: build; skipped on schedule)
+├── image-scan        (host runner; no needs: it builds its own image, so the weekly schedule still runs it; conditional on Dockerfile)
+└── build             (needs: [lint, test]; skipped on schedule)
 ```
 
-`ci.yml` triggers on push to `main`, pull_request, a weekly schedule (`cron: '0 6 * * 1'`), and `workflow_dispatch` for manual re-runs. On the schedule event, `lint`, `test`, `build`, `coverage`, `image-scan`, and `upload-artifacts` skip via `if: github.event_name != 'schedule'` — only the security jobs (`secret-scan`, `workflow-policy`, `vuln-scan`) run. This ensures the security posture is checked weekly even without a code push. `workflow_dispatch` runs are treated like a push event (nothing skips) since they are an explicit manual request for a full run.
+`ci.yml` triggers on push to `main`, pull_request, a weekly schedule (`cron: '0 6 * * 1'`), and `workflow_dispatch` for manual re-runs. Coverage collection and the 60% enforcement are steps of the `test` job, never a separate job. On the schedule event, `lint`, `test` and `build` skip via `if: github.event_name != 'schedule'` — only the security jobs (`secret-scan`, `workflow-policy`, `vuln-scan`, `image-scan`) run. This ensures the security posture is checked weekly even without a code push. `workflow_dispatch` runs are treated like a push event (nothing skips) since they are an explicit manual request for a full run.
 
 `ensure-build-image` always runs regardless of trigger — it is the gate for all other jobs. `secret-scan` runs ungated on a host runner (no `container:`, no `needs`), so it does not wait for the build image. The other security jobs (`workflow-policy`, `vuln-scan`) each independently `needs: ensure-build-image`, giving them parallelism among themselves while depending on the gate. They do not depend on each other.
 

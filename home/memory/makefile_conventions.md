@@ -137,7 +137,7 @@ DOCKER_TIMEOUT ?= 3600
 # --no-healthcheck: the toolchain image's service HEALTHCHECK must not poll a one-shot build container
 # timeout -k 30: a hung run is stopped after DOCKER_TIMEOUT seconds and the signal reaches the container
 LANG_DOCKER := timeout -k 30 $(DOCKER_TIMEOUT) docker run --rm --no-healthcheck \
-    --name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+    --name $(PROJECTNAME)-$$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8) \
     --memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) --cpu-shares=$(DOCKER_CPU_SHARES) \
     -v $(PWD):/app \
     -v $(CACHE_DIR):/root/.cache/{lang} \
@@ -171,7 +171,7 @@ LANG_DOCKER := timeout -k 30 $(DOCKER_TIMEOUT) docker run --rm --no-healthcheck 
 
 Go **primary** uses **host bind-mounts** (`GO_CACHE`, `GO_BUILD`) — always `@mkdir -p $(GO_CACHE) $(GO_BUILD)` before the docker run; **fallback** uses the `go-state` named volume (Docker creates it automatically). Rust uses **named volumes** — Docker creates them automatically; no `mkdir -p` needed. Node and Python use **host dir mounts** — always `@mkdir -p` the host dir before the docker run.
 
-- Always `--rm --name $(PROJECTNAME)-XXXX` — never leave build containers running; the name enables targeted cleanup (`docker stop $(PROJECTNAME)-XXXX`); `XXXX` is a random suffix: `$$(tr -dc 'a-z0-9' </dev/urandom | head -c8)`. Never add `-it` to batch build/test targets (breaks CI — no TTY); `-it` only on explicit interactive-shell targets (e.g. `make shell`)
+- Always `--rm --name $(PROJECTNAME)-XXXX` — never leave build containers running; the name enables targeted cleanup (`docker stop $(PROJECTNAME)-XXXX`); `XXXX` is a random suffix: `$$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)`. Never add `-it` to batch build/test targets (breaks CI — no TTY); `-it` only on explicit interactive-shell targets (e.g. `make shell`)
 - Always `-w /app` — explicit working directory
 - Mount project root at `/app`; output dirs (`binaries/`, `dist/`) are subdirs of `/app`
 

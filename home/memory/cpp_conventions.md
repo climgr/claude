@@ -50,7 +50,7 @@ DOCKER_MEM  ?= 4g
 DOCKER_CPUS ?= 2
 
 CPP_DOCKER := docker run --rm \
-	--name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+	--name $(PROJECTNAME)-$$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8) \
 	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) \
 	-v $(PWD):/build \
 	-v $(CCACHE_DIR):/root/.ccache \
@@ -75,7 +75,7 @@ CPP_DOCKER := docker run --rm \
 CCACHE_DIR ?= $(HOME)/.cache/ccache-docker
 
 CPP_DOCKER := docker run --rm \
-	--name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+	--name $(PROJECTNAME)-$$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8) \
 	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) \
 	-v $(PWD):/build \
 	-v $(CCACHE_DIR):/root/.ccache \

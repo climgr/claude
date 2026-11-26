@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202611261300-git
+##@Version           :  202611261400-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Wednesday, May 14, 2026 00:00 EDT
 # @@File             :  block-host-toolchain.sh
 # @@Description      :  Claude Code PreToolUse hook — block direct host toolchain invocations and suggest the Docker equivalent
-# @@Changelog        :  Binary execution also covers the make dev temp build ($BUILD_DIR/..., {tmpdir}/{org}/{name}-XXXXXX/...), and copying, moving, installing or symlinking binaries/ out is blocked (the templates' NEVER Copy or Symlink Binaries rule). Suggested docker runs now carry --cpu-shares, --no-healthcheck and a timeout ceiling (execution_hierarchy.md), and executing a built binary (binaries/, releases/) directly on the host is blocked with a Docker alternative (testing_conventions.md Binary Execution Rule). Also block govulncheck, cargo-clippy/clippy-driver, and ktlint/detekt on the host (Go/Rust/Android templates' No Host Toolchain rules). Earlier: __split_subcommands now reads the command over stdin instead of argv — a very long command line exceeded the kernel argv limit and the hook silently skipped enforcement.
+# @@Changelog        :  The generated name suffix is the template's `head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8` (a tr pipe into head dies with SIGPIPE under pipefail). Earlier: Binary execution also covers the make dev temp build ($BUILD_DIR/..., {tmpdir}/{org}/{name}-XXXXXX/...), and copying, moving, installing or symlinking binaries/ out is blocked (the templates' NEVER Copy or Symlink Binaries rule). Suggested docker runs now carry --cpu-shares, --no-healthcheck and a timeout ceiling (execution_hierarchy.md), and executing a built binary (binaries/, releases/) directly on the host is blocked with a Docker alternative (testing_conventions.md Binary Execution Rule). Also block govulncheck, cargo-clippy/clippy-driver, and ktlint/detekt on the host (Go/Rust/Android templates' No Host Toolchain rules). Earlier: __split_subcommands now reads the command over stdin instead of argv — a very long command line exceeded the kernel argv limit and the hook silently skipped enforcement.
 #                        docker run; gradle/gradlew and the Android SDK tools now dispatch to
 #                        casjaysdev/android:latest; suggested commands now honor the toolchain-image decision tree
 #                        (project-declared image, then docker/Dockerfile.build, then the language default); the
@@ -40,7 +40,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202611261300-git"
+VERSION="202611261400-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 set -uo pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -455,7 +455,7 @@ BLOCK_HOST_TOOLCHAIN_FIRST_NORM="${BLOCK_HOST_TOOLCHAIN_FIRST_NORM//\}/}"
 case "$BLOCK_HOST_TOOLCHAIN_FIRST_NORM" in
   ./binaries/*|binaries/*|*/binaries/*|./releases/*|releases/*|\$BUILD_DIR/*|\$TMPDIR*/*-??????/*|/tmp/*/*-??????/*|/var/tmp/*/*-??????/*)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$(dirname -- ${BLOCK_HOST_TOOLCHAIN_FIRST})\":/app:ro \\
     alpine:latest /app/\$(basename -- ${BLOCK_HOST_TOOLCHAIN_FIRST}) ...
@@ -519,7 +519,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # ── Go ────────────────────────────────────────────────────────────────────
   go|gofmt|goimports|golangci-lint|govulncheck|gopls|godoc)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/app \\
     -v \"\${GO_CACHE:-\${HOME}/go/pkg/mod}\":/usr/local/share/go/pkg/mod \\
@@ -535,7 +535,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # ── Rust ──────────────────────────────────────────────────────────────────
   cargo|cargo-clippy|clippy-driver|rustc|rustup|rustfmt|wasm-pack)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/app \\
     -v \"\${CARGO_CACHE:-\${HOME}/.cargo}\":/usr/local/share/cargo \\
@@ -557,7 +557,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # unresolved documentation inconsistency; not fixed here, only not made worse.
   node|npm|npx|yarn|pnpm|corepack)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/app \\
     -v \"\${NPM_CACHE:-\${HOME}/.npm}\":/root/.npm \\
@@ -573,7 +573,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   turbo|turborepo|eslint|prettier|biome|oxlint|jshint|standard|xo|\
   swc|tsup|unbuild|pkgroll)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/app \\
     -v \"\${NPM_CACHE:-\${HOME}/.npm}\":/root/.npm \\
@@ -586,7 +586,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # ── Alt JS runtimes ───────────────────────────────────────────────────────
   bun)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/app \\
     -w /app \\
@@ -597,7 +597,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
 
   deno)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/app \\
     -w /app \\
@@ -611,7 +611,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # via npm; use node:alpine and install the toolchain inside the container.
   elm|spago|purs|rescript|coffee|asc)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/app \\
     -w /app \\
@@ -627,7 +627,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   pip|pip3|pip3.[0-9]*|uv|poetry|pipenv|hatch|pdm|tox|nox|flit|twine|\
   pyproject-build|setuptools|conda|mamba|micromamba)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/app \\
     -v \"\${PIP_CACHE:-\${HOME}/.cache/pip}\":/root/.cache/pip \\
@@ -641,7 +641,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # ── Ruby ──────────────────────────────────────────────────────────────────
   gem|bundle|bundler|rake|rspec|rubocop|standardrb|sorbet|srb)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/app \\
     -w /app \\
@@ -657,7 +657,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # own SDK install path).
   gradle|gradlew|adb|sdkmanager|apksigner|zipalign|d8|r8|aapt2|ktlint|detekt)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -v \"\${HOME}/.gradle\":/root/.gradle \\
@@ -671,7 +671,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # ── JVM build tools (Maven / Ant) ────────────────────────────────────────
   mvn|mvnw|ant)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -v \"\${HOME}/.m2\":/root/.m2 \\
@@ -685,7 +685,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   java|javac|jar|javap|jshell|jlink|jpackage|javadoc|javaws|\
   jmap|jstack|jinfo|jcmd|jps|jstat|jfr|jdb)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -697,7 +697,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # ── GraalVM native-image ──────────────────────────────────────────────────
   native-image|gu)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -709,7 +709,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # ── Kotlin ────────────────────────────────────────────────────────────────
   kotlin|kotlinc|kotlinc-jvm|kotlinc-js)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -721,7 +721,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # ── Scala / SBT ───────────────────────────────────────────────────────────
   scala|scalac|scala3|scalac3|sbt)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -v \"\${HOME}/.ivy2\":/root/.ivy2 \\
@@ -735,7 +735,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # ── Clojure / Leiningen ───────────────────────────────────────────────────
   lein|clojure|clj|clj-kondo)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -v \"\${HOME}/.m2\":/root/.m2 \\
@@ -748,7 +748,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # ── Groovy ────────────────────────────────────────────────────────────────
   groovy|groovyc|groovysh)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -760,7 +760,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # ── PHP ───────────────────────────────────────────────────────────────────
   php|php[0-9]*|composer|phpunit|phpcs|phpmd|phpstan|psalm|phpbrew|phive)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/app \\
     -w /app \\
@@ -772,7 +772,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # ── .NET / C# / F# / VB ──────────────────────────────────────────────────
   dotnet|msbuild|nuget|csc|fsc|vbc|dotnet-script|dotnet-ef)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/app \\
     -w /app \\
@@ -784,7 +784,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # ── Elixir / Erlang ───────────────────────────────────────────────────────
   mix|elixir|elixirc|erl|erlc|escript|rebar3|dialyzer)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/app \\
     -w /app \\
@@ -796,7 +796,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # ── Gleam (BEAM / Erlang VM language) ────────────────────────────────────
   gleam)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/app \\
     -w /app \\
@@ -809,7 +809,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # No official Alpine image — uses Debian-based :latest.
   ghc|ghci|runghc|runhaskell|cabal|stack|haddock|hoogle)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -822,7 +822,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # No official Alpine image — uses Ubuntu-based :latest.
   swift|swiftc|swift-package|swift-build|swift-test|swift-run)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -835,7 +835,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # No official Alpine image — uses Debian-based :latest.
   dart|flutter|pub)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -848,7 +848,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # Zig is in Alpine edge; no separate official Docker image.
   zig)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -860,7 +860,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # ── Crystal ───────────────────────────────────────────────────────────────
   crystal|shards)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -872,7 +872,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # ── OCaml / OPAM / Dune ───────────────────────────────────────────────────
   ocaml|ocamlopt|ocamlfind|ocamlbuild|opam|dune)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -884,7 +884,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # ── D language ────────────────────────────────────────────────────────────
   dmd|dub|ldc|ldc2|gdc|rdmd)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -897,7 +897,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # No official Alpine image — uses Debian-based :latest.
   julia)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -v \"\${HOME}/.julia\":/root/.julia \\
@@ -911,7 +911,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # No official Alpine image — uses Debian-based :latest.
   R|Rscript|renv)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -923,7 +923,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # ── Nim ───────────────────────────────────────────────────────────────────
   nim|nimble|nimgrep|nimpretty|testament)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -936,7 +936,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # Bare "v" is not blocked — it collides with a common shell alias name.
   vpm)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -950,7 +950,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # slim base (never a :latest Ubuntu/Debian image, per dockerfile_conventions.md).
   odin)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -963,7 +963,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # lua itself is a common system scripting tool and is NOT blocked.
   luarocks|luac)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -975,7 +975,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # ── Janet (small Lisp/C hybrid, in Alpine repos) ─────────────────────────
   janet|jpm)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -987,7 +987,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # ── Fennel (Lisp dialect for Lua, in Alpine repos) ───────────────────────
   fennel)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -1000,7 +1000,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # perl itself is a system scripting tool and is NOT blocked.
   cpan|cpanm|cpm|carton|prove|plackup|morbo)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/app \\
     -w /app \\
@@ -1012,7 +1012,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # ── Fortran ───────────────────────────────────────────────────────────────
   gfortran|flang|ifort|ifx|f77|f95|fort77)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -1024,7 +1024,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # ── COBOL ─────────────────────────────────────────────────────────────────
   cobc|cobcrun|cob-config)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -1036,7 +1036,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # ── Ada / GNAT ────────────────────────────────────────────────────────────
   gnat|gnatmake|gprbuild|gnatclean|gnatbind|gnatlink|gnatfind|gnatxref)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -1048,7 +1048,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # ── Emscripten — C / C++ to WebAssembly ──────────────────────────────────
   emcc|em++|emcmake|emmake|emar|emranlib|emstrip|emrun|emdump|emsize)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -1061,7 +1061,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # No Alpine image; use a Debian slim base, never :latest.
   sbcl|clisp|ecl|abcl|gcl|ccl|acl)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -1074,7 +1074,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # No Alpine image; official image is Debian-based.
   racket|raco)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -1089,7 +1089,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   guile|chicken|chicken-install|chicken-status|csi|\
   mit-scheme|chibi-scheme|chezscheme|chez|petite-chez)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -1102,7 +1102,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # No Alpine image; official SWI-Prolog image is Debian-based.
   swipl|swipl-ld|gprolog|yap|xsb|clingo|spass)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -1115,7 +1115,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # No Alpine image; use a Debian slim base, never :latest.
   bazel|bazelisk|ibazel)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -v \"\${HOME}/.cache/bazel\":/root/.cache/bazel \\
@@ -1132,7 +1132,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   arm-linux-gnueabihf-gcc|arm-linux-gnueabihf-g++|\
   riscv64-linux-gnu-gcc|riscv64-linux-gnu-g++)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -1146,7 +1146,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # and make drives Docker-based builds in this project.
   cmake|meson|autoconf|automake|autoreconf|configure)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\
@@ -1159,7 +1159,7 @@ case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
   # strip is not blocked — settings.json allowlists it and it is used on non-C artifacts.
   as|ld|ar|ranlib|objcopy)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
-    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
+    --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
     -v \"\$PWD\":/workspace \\
     -w /workspace \\

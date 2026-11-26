@@ -50,7 +50,7 @@ DOCKER_MEM  ?= 4g
 DOCKER_CPUS ?= 2
 
 JAVA_DOCKER := docker run --rm \
-	--name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+	--name $(PROJECTNAME)-$$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8) \
 	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) \
 	-v $(PWD):/build \
 	-v $(MAVEN_CACHE):/root/.m2 \
@@ -74,7 +74,7 @@ JAVA_DOCKER := docker run --rm \
 MAVEN_CACHE ?= $(HOME)/.cache/m2-docker
 
 JAVA_DOCKER := docker run --rm \
-	--name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+	--name $(PROJECTNAME)-$$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8) \
 	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) \
 	-v $(PWD):/build \
 	-v $(MAVEN_CACHE):/root/.m2 \

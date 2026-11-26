@@ -51,7 +51,7 @@ DOCKER_MEM  ?= 4g
 DOCKER_CPUS ?= 2
 
 ELIXIR_DOCKER := docker run --rm \
-	--name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+	--name $(PROJECTNAME)-$$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8) \
 	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) \
 	-v $(PWD):/build \
 	-v $(MIX_CACHE):/root/.hex \
@@ -76,7 +76,7 @@ ELIXIR_DOCKER := docker run --rm \
 MIX_CACHE ?= $(HOME)/.cache/mix-docker
 
 ELIXIR_DOCKER := docker run --rm \
-	--name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+	--name $(PROJECTNAME)-$$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8) \
 	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) \
 	-v $(PWD):/build \
 	-v $(MIX_CACHE):/root/.hex \

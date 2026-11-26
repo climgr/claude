@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202611200001-git
+##@Version           :  202611261500-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, August 30, 2026 19:00 EDT
 # @@File             :  enforce-gitcommit-shape.sh
 # @@Description      :  PreToolUse Bash hook: blocks any commit-wrapper invocation not exactly `--dir <abs-path> all`, `--dir <abs-path> spec` or `--dir <abs-path> push` (CLAUDE.md's Commit Workflow).
-# @@Changelog        :  Accept `--dir <abs-path> push` (bare `push` now blocked) and `spec`; block message lists every valid form and the absolute-path rule. Ignore shell redirections (2>&1, >/dev/null, >> log) after a valid invocation — they were counted as extra args and falsely blocked; decode stdin as UTF-8 with replacement and fail open on any parse exception.
+# @@Changelog        :  Branch gate: a valid `--dir <abs-path> all|spec|push` is also blocked when that repo (our project shape: AI.md, SPEC.md, IDEA.md, CLAUDE.md or a root spec .md) is not on `main`, per the templates' Definition of Done; a repo with no commits yet and third-party repos are exempt. Earlier: Accept `--dir <abs-path> push` (bare `push` now blocked) and `spec`; block message lists every valid form and the absolute-path rule. Ignore shell redirections (2>&1, >/dev/null, >> log) after a valid invocation — they were counted as extra args and falsely blocked; decode stdin as UTF-8 with replacement and fail open on any parse exception.
 # @@TODO             :  None
 # @@Other              :  Does not apply to raw git commit/push (governed by zone-git-commit-push.sh instead); the commit wrapper has no zone exception anywhere.
 # @@Resource         :  CLAUDE.md - Commit Workflow
@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202611200001-git"
+VERSION="202611261500-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 set -euo pipefail
 
@@ -37,6 +37,7 @@ printf '%s' "$ENFORCE_GITCOMMIT_SHAPE_INPUT" > "$ENFORCE_GITCOMMIT_SHAPE_INPUT_T
 
 python3 - "$ENFORCE_GITCOMMIT_SHAPE_INPUT_TMPFILE" <<'PYEOF'
 import json
+import subprocess
 import os
 import re
 import shlex
@@ -132,6 +133,43 @@ if not re.search(r"\bgitcommit\b", cmd):
     sys.exit(0)
 
 violations = []
+gate_failures = []
+
+# Files that mark a repo as one of ours (project shape) or a claudemgr template
+# repo (a root spec .md). A third-party repo being contributed to has none of
+# these, so its own branch workflow is left alone (external_contributions.md).
+NON_SPEC_MD = {
+    "README.md", "LICENSE.md", "CHANGELOG.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md",
+    "AUTHORS.md", "NOTICE.md", "TODO.md", "TODO.AI.md", "PLAN.md", "PLAN.AI.md",
+}
+
+
+def branch_gate(repo):
+    # Definition of Done step 5: gitcommit runs only after the branch gate passes,
+    # i.e. the repo is on main (work lands on main before any commit; branches and
+    # stashes are local scratch). Fails open on any git error.
+    try:
+        if not os.path.isdir(os.path.join(repo, ".git")):
+            return None
+        names = os.listdir(repo)
+        ours = any(n in names for n in ("AI.md", "SPEC.md", "IDEA.md", "CLAUDE.md")) or any(
+            n.endswith(".md") and n not in NON_SPEC_MD for n in names
+        )
+        if not ours:
+            return None
+        head = subprocess.run(["git", "-C", repo, "rev-parse", "--verify", "-q", "HEAD"], capture_output=True, timeout=15)
+        if head.returncode != 0:
+            return None
+        cur = subprocess.run(["git", "-C", repo, "branch", "--show-current"], capture_output=True, timeout=15)
+        if cur.returncode != 0:
+            return None
+        branch = cur.stdout.decode("utf-8", "replace").strip()
+        if branch == "main":
+            return None
+        return f"{repo} is on {branch or 'a detached HEAD'}, not main"
+    except (OSError, subprocess.SubprocessError):
+        return None
+
 
 for sub_cmd in re.split(r"[\n;]|&&|\|\||[|&]", cmd):
     sub_cmd = sub_cmd.strip()
@@ -187,9 +225,24 @@ for sub_cmd in re.split(r"[\n;]|&&|\|\||[|&]", cmd):
         and args[1]
         and args[1].startswith("/")
     ):
+        gate_msg = branch_gate(args[1])
+        if gate_msg:
+            gate_failures.append(gate_msg)
         continue
 
     violations.append(sub_cmd)
+
+if gate_failures and not violations:
+    gate_text = (
+        "BLOCKED: branch gate failed - gitcommit runs only from main.\n\n"
+        + "\n".join(f"  {g}" for g in gate_failures)
+        + "\n\nWork lands on main before any commit (branches and stashes are local scratch and are never\n"
+        "pushed). Merge or move the work onto main, switch to main, then retry. A branch gate failure is a\n"
+        "named stop reason in the Definition of Done: report it instead of working around it."
+    )
+    print(gate_text)
+    sys.stderr.write(gate_text + "\n")
+    sys.exit(2)
 
 if not violations:
     sys.exit(0)

@@ -93,7 +93,7 @@ DOCKER_CPU_SHARES ?= 256
 DOCKER_TIMEOUT ?= 3600
 
 RUST_DOCKER := timeout -k 30 $(DOCKER_TIMEOUT) docker run --rm --no-healthcheck \
-	--name $(PROJECT_NAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+	--name $(PROJECT_NAME)-$$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8) \
 	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) --cpu-shares=$(DOCKER_CPU_SHARES) \
 	-e RUSTC_WRAPPER=sccache \
 	-v "$(PWD)":/app \
@@ -160,7 +160,7 @@ RUST_RUSTUP_VOL  := rust-rustup
 RUST_SCCACHE_VOL := rust-sccache
 
 RUST_DOCKER := timeout -k 30 $(DOCKER_TIMEOUT) docker run --rm --no-healthcheck \
-	--name $(PROJECT_NAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+	--name $(PROJECT_NAME)-$$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8) \
 	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) --cpu-shares=$(DOCKER_CPU_SHARES) \
 	-e RUSTC_WRAPPER=sccache \
 	-v "$(PWD)":/app \

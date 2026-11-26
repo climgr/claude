@@ -283,7 +283,7 @@ EPEL needed.
 # Start the build container
 docker run --rm \
   --privileged \
-  --name rpmbuild-{name}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+  --name rpmbuild-{name}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8) \
   -v "$HOME/rpmbuild:/root/rpmbuild" \
   -v "$HOME/Documents/builds:/root/Documents/builds" \
   -v "$HOME/.rpmmacros:/root/.rpmmacros:ro" \

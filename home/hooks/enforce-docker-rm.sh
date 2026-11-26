@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202611261200-git
+##@Version           :  202611261400-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,14 +10,14 @@
 # @@Created          :  Thursday, May 15, 2026 00:00 EDT
 # @@File             :  enforce-docker-rm.sh
 # @@Description      :  PreToolUse hook: block docker run without --rm/--name and incus launch/init without an instance name (prevents orphaned/untargetable containers)
-# @@Changelog        :  incus launch/init now also requires the resource caps the template test scripts set (limits.cpu, limits.memory and, for containers, limits.cpu.priority) unless a profile is given. Decode the stdin payload file as UTF-8 with replacement and fail open on any parse exception (not only JSONDecodeError) — a non-UTF-8 byte previously raised UnicodeDecodeError and surfaced as a hook error. Never elide a heredoc body on a line with a pipe, $( or backtick (cat <<EOF | bash routes the body into a host shell), matching the other heredoc-aware hooks.
+# @@Changelog        :  The generated name suffix is the template's `head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8` (a tr pipe into head dies with SIGPIPE under pipefail). Earlier: incus launch/init now also requires the resource caps the template test scripts set (limits.cpu, limits.memory and, for containers, limits.cpu.priority) unless a profile is given. Decode the stdin payload file as UTF-8 with replacement and fail open on any parse exception (not only JSONDecodeError) — a non-UTF-8 byte previously raised UnicodeDecodeError and surfaced as a hook error. Never elide a heredoc body on a line with a pipe, $( or backtick (cat <<EOF | bash routes the body into a host shell), matching the other heredoc-aware hooks.
 # @@TODO             :  None
 # @@Other            :  --rm is exempt for detached (-d/--detach) containers so tests can inspect a crashed container's logs before teardown; --name stays mandatory either way
 # @@Resource         :
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202611261200-git"
+VERSION="202611261400-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 set -euo pipefail
 
@@ -294,7 +294,7 @@ msg = (
     "Every docker container must use --rm (self-remove on exit, no orphans) and\n"
     "--name {project_name}-XXXX; every incus instance must be launched with\n"
     "an explicit {project_name}-XXXX instance name (targeted cleanup by name).\n"
-    "XXXX = random 8-char lowercase alphanumeric suffix.\n\n"
+    "XXXX = random 8-character lowercase hex suffix.\n\n"
     "Every incus launch also carries resource caps so a test never starves the host:\n"
     "-c limits.cpu=2 -c limits.memory=4GiB (and -c limits.cpu.priority=2 for a\n"
     "container; a --vm has no priority key). A -p/--profile that sets them is fine.\n\n"
@@ -310,9 +310,10 @@ for short, missing in violations:
 
 msg += (
     "\nFix patterns:\n"
-    "  docker run --rm --name \"{project_name}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" [OPTIONS] IMAGE [COMMAND]\n"
-    "  docker run -d --name \"{project_name}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" [OPTIONS] IMAGE [COMMAND]  # integration test, --rm optional\n"
-    "  incus launch IMAGE \"$(basename \"$PWD\")-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" -c limits.cpu=2 -c limits.memory=4GiB -c limits.cpu.priority=2\n\n"
+    "  docker run --rm --name \"{project_name}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" [OPTIONS] IMAGE [COMMAND]\n"
+    "  docker run -d --name \"{project_name}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" [OPTIONS] IMAGE [COMMAND]  # integration test, --rm optional\n"
+    "  incus launch IMAGE \"$(basename \"$PWD\")-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)\" "
+    "-c limits.cpu=2 -c limits.memory=4GiB -c limits.cpu.priority=2\n\n"
     "If this container must persist after the session (e.g. a user-requested dev environment),\n"
     "confirm with the user first and document the container name/ID."
 )

@@ -65,7 +65,7 @@ DOCKER_CPU_SHARES ?= 256
 DOCKER_TIMEOUT ?= 3600
 
 GO_DOCKER := timeout -k 30 $(DOCKER_TIMEOUT) docker run --rm --no-healthcheck \
-	--name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+	--name $(PROJECTNAME)-$$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8) \
 	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) --cpu-shares=$(DOCKER_CPU_SHARES) \
 	-v $(PWD):/app \
 	-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
@@ -142,7 +142,7 @@ GO_CACHE  ?= $(HOME)/go/pkg/mod
 GO_BUILD  ?= $(HOME)/.cache/go-build/$(PROJECTNAME)
 
 GO_DOCKER := timeout -k 30 $(DOCKER_TIMEOUT) docker run --rm --no-healthcheck \
-	--name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+	--name $(PROJECTNAME)-$$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8) \
 	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) --cpu-shares=$(DOCKER_CPU_SHARES) \
 	-v $(PWD):/app \
 	-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
@@ -199,7 +199,7 @@ Always builds into a temp dir for `dev`, never to a hardcoded path.
 some-target:
 	@mkdir -p $(GO_CACHE) $(GO_BUILD)
 	@timeout -k 30 $(DOCKER_TIMEOUT) docker run --rm --no-healthcheck \
-		--name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+		--name $(PROJECTNAME)-$$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8) \
 		-v $(PWD):/app \
 		-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
 		-v $(GO_BUILD):/usr/local/share/go/cache \
@@ -463,7 +463,7 @@ GO_CACHE  ?= $(HOME)/go/pkg/mod
 GO_BUILD  ?= $(HOME)/.cache/go-build/$(PROJECTNAME)
 
 GO_DOCKER := timeout -k 30 $(DOCKER_TIMEOUT) docker run --rm --no-healthcheck \
-	--name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+	--name $(PROJECTNAME)-$$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8) \
 	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) --cpu-shares=$(DOCKER_CPU_SHARES) \
 	-v $(PWD):/app \
 	-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
@@ -482,7 +482,7 @@ Use `?=` so a host-set `GO_CACHE` or `GO_BUILD` env var (pointing at custom `GOM
 GO_VOL := go-state
 
 GO_DOCKER := timeout -k 30 $(DOCKER_TIMEOUT) docker run --rm --no-healthcheck \
-	--name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+	--name $(PROJECTNAME)-$$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8) \
 	-v $(PWD):/app \
 	-v $(GO_VOL):/usr/local/share/go \
 	-w /app \

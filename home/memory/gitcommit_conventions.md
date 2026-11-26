@@ -57,6 +57,30 @@ No bare `@` handles and no AI attribution trailers (see above). `gitcommit --dir
 
 **Exception — app-breaking bugs found mid-feature:** if the bug breaks the build, crashes the app, or blocks the feature/app from functioning, fix it immediately, in place, before continuing. Committing a broken project is itself a bug — it violates "no partially implemented code."
 
+## Definition of Done
+
+**A unit of work is done only when it is committed and pushed.** Edited files are not done, and neither is a clean diff left in the working tree.
+
+| Step | Requirement |
+|------|-------------|
+| 1. Review | The main instance reads the full diff, so the commit says what the diff really does |
+| 2. Gates | The project's test and lint gates run once, after the full diff is reviewed (never by a subagent). A failing gate is fixed, never skipped or overridden |
+| 3. TODO | `TODO.AI.md` is made true in the same change (TODO.AI.md Completion below) |
+| 4. Message | `.git/COMMIT_MESS` is written and re-read |
+| 5. Commit | `gitcommit --dir {project_dir} all`, after the branch gate passes (the repo is on `main`; branches and stashes are local scratch and work lands on `main` before any commit) |
+| 6. Verify | The committed scope is clean in `git status --porcelain`, the push succeeded, and CI for the pushed commit is green. Never report done while it is red or still running |
+
+**Subagents.** A subagent's report is a hand-back, never completion. The main instance runs steps 1-6 right after the report arrives, without waiting for the user to ask. An instance that was itself started as an agent is the main instance for this purpose and runs the steps too.
+
+**The only reasons to stop before step 5, each reported by name with the exact detail:**
+- the branch gate failed (not on `main`)
+- a gate or a hook fails or blocks the commit and the cause cannot be fixed within the task: report the failing check, its output and what was tried (a hook block is never bypassed automatically)
+- a contradiction or unclear requirement that only the user can decide: ask the one specific question
+- the user said to wait, or the rule needs explicit approval first (for example a proposed rewrite of an existing file)
+- a destructive or irreversible action that needs confirmation
+
+Never stop at "edits finished", at "ready for review", or with a message that tells the user to commit.
+
 ## Who Commits
 
 **Only the main session ever runs `gitcommit` or raw `git commit`/`git push`.** Agents and subagents — of any type, including forked agents — never commit and never push, under any circumstance, even inside the Local System Management Zone's raw-git exception. Agents also never write `COMMIT_MESS` and never run `make`, tests, lint, or any gate. An agent's job ends at editing its scoped files and reporting back; the main session is the only place that reviews the full diff, writes `COMMIT_MESS`, and invokes the commit. This is a hard rule, mechanically enforced by `no-subagent-commit.sh` (blocks the attempt) — it is not a preference an agent can reason its way around.

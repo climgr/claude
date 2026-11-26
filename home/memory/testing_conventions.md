@@ -25,7 +25,7 @@ All projects have exactly two test phases. They are distinct in purpose, command
 
 ### Binary Execution Rule
 
-**Never execute a built binary directly on the host.** This applies to AI and to human-readable instructions alike.
+**Never execute a built binary directly on the host, not even for `--help` or `--version`.** This applies to AI and to human-readable instructions alike; the Go and Rust templates list `binaries/{project_name}` and `$BUILD_DIR/{project_name}` as never run locally. The end-user install steps of a production README are the product's own install path and run the binary directly on the user's machine.
 
 | NEVER | ALWAYS |
 |-------|--------|
