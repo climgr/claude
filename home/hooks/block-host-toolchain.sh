@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202611261200-git
+##@Version           :  202611261300-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Wednesday, May 14, 2026 00:00 EDT
 # @@File             :  block-host-toolchain.sh
 # @@Description      :  Claude Code PreToolUse hook — block direct host toolchain invocations and suggest the Docker equivalent
-# @@Changelog        :  Suggested docker runs now carry --cpu-shares, --no-healthcheck and a timeout ceiling (execution_hierarchy.md), and executing a built binary (binaries/, releases/) directly on the host is blocked with a Docker alternative (testing_conventions.md Binary Execution Rule). Also block govulncheck, cargo-clippy/clippy-driver, and ktlint/detekt on the host (Go/Rust/Android templates' No Host Toolchain rules). Earlier: __split_subcommands now reads the command over stdin instead of argv — a very long command line exceeded the kernel argv limit and the hook silently skipped enforcement.
+# @@Changelog        :  Binary execution also covers the make dev temp build ($BUILD_DIR/..., {tmpdir}/{org}/{name}-XXXXXX/...), and copying, moving, installing or symlinking binaries/ out is blocked (the templates' NEVER Copy or Symlink Binaries rule). Suggested docker runs now carry --cpu-shares, --no-healthcheck and a timeout ceiling (execution_hierarchy.md), and executing a built binary (binaries/, releases/) directly on the host is blocked with a Docker alternative (testing_conventions.md Binary Execution Rule). Also block govulncheck, cargo-clippy/clippy-driver, and ktlint/detekt on the host (Go/Rust/Android templates' No Host Toolchain rules). Earlier: __split_subcommands now reads the command over stdin instead of argv — a very long command line exceeded the kernel argv limit and the hook silently skipped enforcement.
 #                        docker run; gradle/gradlew and the Android SDK tools now dispatch to
 #                        casjaysdev/android:latest; suggested commands now honor the toolchain-image decision tree
 #                        (project-declared image, then docker/Dockerfile.build, then the language default); the
@@ -40,7 +40,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202611261200-git"
+VERSION="202611261300-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 set -uo pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -446,16 +446,57 @@ BLOCK_HOST_TOOLCHAIN_FIRST_BASE="${BLOCK_HOST_TOOLCHAIN_FIRST##*/}"
 # directly on the host. Only the command word is inspected, so ls, cp,
 # sha256sum and friends on binaries/ stay allowed; docker/incus runs were
 # exempted above.
-case "$BLOCK_HOST_TOOLCHAIN_FIRST" in
-  ./binaries/*|binaries/*|*/binaries/*|./releases/*|releases/*)
+# Quotes and braces are stripped one character at a time (a } inside a bracket expression ends the
+# expansion) so "$BUILD_DIR"/x and ${BUILD_DIR}/x match the same pattern as $BUILD_DIR/x.
+BLOCK_HOST_TOOLCHAIN_FIRST_NORM="${BLOCK_HOST_TOOLCHAIN_FIRST//\"/}"
+BLOCK_HOST_TOOLCHAIN_FIRST_NORM="${BLOCK_HOST_TOOLCHAIN_FIRST_NORM//\'/}"
+BLOCK_HOST_TOOLCHAIN_FIRST_NORM="${BLOCK_HOST_TOOLCHAIN_FIRST_NORM//\{/}"
+BLOCK_HOST_TOOLCHAIN_FIRST_NORM="${BLOCK_HOST_TOOLCHAIN_FIRST_NORM//\}/}"
+case "$BLOCK_HOST_TOOLCHAIN_FIRST_NORM" in
+  ./binaries/*|binaries/*|*/binaries/*|./releases/*|releases/*|\$BUILD_DIR/*|\$TMPDIR*/*-??????/*|/tmp/*/*-??????/*|/var/tmp/*/*-??????/*)
     BLOCK_HOST_TOOLCHAIN_DOCKER_CMD="  timeout -k 30 ${BLOCK_HOST_TOOLCHAIN_DOCKER_TIMEOUT} docker run --rm --no-healthcheck \\
     --name \"${BLOCK_HOST_TOOLCHAIN_PROJECT_NAME}-\$(tr -dc 'a-z0-9' </dev/urandom | head -c8)\" \\
     --memory=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_MEM}\" --cpus=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPUS}\" --cpu-shares=\"${BLOCK_HOST_TOOLCHAIN_DOCKER_CPU_SHARES}\" \\
-    -v \"\$PWD/${BLOCK_HOST_TOOLCHAIN_FIRST#*binaries/}\":/app/run:ro \\
-    alpine:latest /app/run ...
+    -v \"\$(dirname -- ${BLOCK_HOST_TOOLCHAIN_FIRST})\":/app:ro \\
+    alpine:latest /app/\$(basename -- ${BLOCK_HOST_TOOLCHAIN_FIRST}) ...
 
   or run the Phase 2 scripts, which handle this correctly: ./tests/run_tests.sh (basic tier), ./tests/incus.sh, ./tests/docker.sh"
     __block "$BLOCK_HOST_TOOLCHAIN_FIRST" "$BLOCK_HOST_TOOLCHAIN_DOCKER_CMD" "~/.claude/memory/testing_conventions.md (Binary Execution Rule)"
+    ;;
+esac
+
+# NEVER Copy or Symlink Binaries (the templates' Directory Rules): ln, cp, mv
+# and install never take binaries/ as a source or link target. A copy inside a
+# container (docker cp, incus file push) is exempt because those commands were
+# exempted above. Only the arguments are inspected, so ls and sha256sum on
+# binaries/ stay allowed.
+case "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" in
+  ln|cp|mv|install)
+    read -r -a BLOCK_HOST_TOOLCHAIN_ARGS <<<"$CMD"
+    BLOCK_HOST_TOOLCHAIN_HIT=0
+    BLOCK_HOST_TOOLCHAIN_NARGS=0
+    for BLOCK_HOST_TOOLCHAIN_ARG in "${BLOCK_HOST_TOOLCHAIN_ARGS[@]:1}"; do
+      case "$BLOCK_HOST_TOOLCHAIN_ARG" in -*) continue ;; esac
+      BLOCK_HOST_TOOLCHAIN_NARGS=$((BLOCK_HOST_TOOLCHAIN_NARGS + 1))
+      BLOCK_HOST_TOOLCHAIN_ARG_NORM="${BLOCK_HOST_TOOLCHAIN_ARG//\"/}"
+      BLOCK_HOST_TOOLCHAIN_ARG_NORM="${BLOCK_HOST_TOOLCHAIN_ARG_NORM//\'/}"
+      BLOCK_HOST_TOOLCHAIN_ARG_NORM="${BLOCK_HOST_TOOLCHAIN_ARG_NORM//\{/}"
+      BLOCK_HOST_TOOLCHAIN_ARG_NORM="${BLOCK_HOST_TOOLCHAIN_ARG_NORM//\}/}"
+      case "$BLOCK_HOST_TOOLCHAIN_ARG_NORM" in
+        binaries/*|./binaries/*|*/binaries/*|\$BUILD_DIR/*)
+          # for ln, any binaries/ argument; for cp/mv/install, the source (not the last argument)
+          BLOCK_HOST_TOOLCHAIN_HIT=$BLOCK_HOST_TOOLCHAIN_NARGS
+          BLOCK_HOST_TOOLCHAIN_HIT_ARG="$BLOCK_HOST_TOOLCHAIN_ARG"
+          ;;
+      esac
+    done
+    if [[ "$BLOCK_HOST_TOOLCHAIN_HIT" -gt 0 ]] \
+      && { [[ "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" = "ln" ]] || [[ "$BLOCK_HOST_TOOLCHAIN_HIT" -lt "$BLOCK_HOST_TOOLCHAIN_NARGS" ]]; }; then
+      BLOCK_HOST_TOOLCHAIN_COPY_MSG="  Binaries are never copied, moved, installed or symlinked; they stay in binaries/ (build output)
+  until CI/CD or make release stages them. Run the binary inside a container or use the Phase 2 scripts:
+  ./tests/run_tests.sh, ./tests/incus.sh, ./tests/docker.sh"
+      __block "$BLOCK_HOST_TOOLCHAIN_FIRST_BASE" "$BLOCK_HOST_TOOLCHAIN_COPY_MSG" "~/.claude/memory/testing_conventions.md (Binary Execution Rule)"
+    fi
     ;;
 esac
 
