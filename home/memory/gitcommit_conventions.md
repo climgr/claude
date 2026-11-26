@@ -63,7 +63,7 @@ No bare `@` handles and no AI attribution trailers (see above). `gitcommit --dir
 
 ## TODO.AI.md Completion
 
-(1) Implement a task and commit it normally, its item still in `TODO.AI.md`. (2) After that commit succeeds, delete the item. (3) The deletion is committed together with the next task. (4) The commit that deletes the LAST item uses the title `✅ all todo items have been completed ✅` and a body summarizing what was accomplished. The human-owned `TODO.md` is never emptied or truncated by AI — only individual items are marked done in place.
+(1) Delete each item from `TODO.AI.md` the moment its task is complete, before the commit, so the committed file never lists finished work (an outdated TODO file in a commit is a defect). (2) The item's deletion is part of the same commit as its task. (3) When the last item is done, delete `TODO.AI.md` itself; that commit uses the title `✅ all todo items have been completed ✅` and a body summarizing what was accomplished. The human-owned `TODO.md` is never emptied or truncated by AI — only individual items are marked done in place.
 
 ## Push Behavior
 
