@@ -84,8 +84,8 @@ GO_DOCKER := timeout -k 30 $(DOCKER_TIMEOUT) docker run --rm --no-healthcheck \
 | `release` | Prepares release archives in `releases/`; first prerequisite is `release-check` |
 | `release-check` | Internal helper: exit `78` with `ERROR:` on stderr unless `release.txt` is a stable `X.Y.Z` |
 | `beta` | Tags the clean `main` commit `YYYYMMDDHHMMSS-beta` and pushes the tag; CI publishes the beta |
-| `docker` | Builds multi-arch image locally via `docker buildx --platform linux/amd64,linux/arm64` (no push) |
-| `test` | Runs `go vet ./...`, `govulncheck ./...`, then `go test -v -cover ./... -args -test.gocoverdir="$COVDIR/data"` inside Docker; the total comes from `go tool covdata textfmt` then `go tool cover -func` (never `-coverprofile`), gate at 60% |
+| `docker` | Builds the host platform only via `docker buildx build --load` (no push, no multi-arch: multi-arch publishing is CI/CD's job) |
+| `test` | Runs `go vet ./...`, `govulncheck ./...`, then `TMPDIR="$COVDIR" go test -v -cover ./... -args -test.gocoverdir="$COVDIR/data"` inside Docker; the total comes from `go tool covdata textfmt` then `go tool cover -func` (never `-coverprofile`), gate at 60% |
 | `dev` | Quick host-platform-only build into `mktemp` temp dir |
 | `clean` | Removes `binaries/` and `releases/` |
 
@@ -232,7 +232,7 @@ Never use `VCS_REF` as an alias — `CommitID` is the canonical name.
 
 Always `ghcr.io/{PROJECTORG}/{PROJECTNAME}` — a release is tagged `:{VERSION}`, `:latest`, `:YYMM` and `:{commit_id}`; a push to `main` gets `:{commit_id}` only, a `*-beta` tag adds `:beta`, and `:devel` comes from the separate `build-devel` job in `docker.yml` (built from `Dockerfile.dev`).
 
-Docker target uses `docker buildx` with `--platform $(PLATFORMS)` — no `--push`; pushing is CI/CD's responsibility, not the Makefile's. `PLATFORMS` is space-separated, defaults to all 8 OS/arch pairs (linux, darwin, windows, freebsd x amd64, arm64) and is overridable: `make docker PLATFORMS=linux/amd64`.
+Docker target uses `docker buildx build --load` for the host platform only — no `--push`, no multi-arch; pushing and multi-arch publishing are CI/CD's responsibility, not the Makefile's. `PLATFORMS` (space-separated, all 8 OS/arch pairs: linux, darwin, windows, freebsd x amd64, arm64) drives the binary `build` target, not `docker`.
 
 ## Minimum Go Version
 

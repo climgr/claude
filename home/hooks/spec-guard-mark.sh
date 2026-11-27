@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202609170001-git
+##@Version           :  202611261600-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,12 +10,12 @@
 # @@Created          :  Monday, July 20, 2026 00:00 EDT
 # @@File             :  spec-guard-mark.sh
 # @@Description      :  PostToolUse hook: record that AI.md/SPEC.md was read this session, per project
-# @@Changelog        :  realpath-normalise the recorded project path so it matches enforce-test-lint-gate.sh's realpath comparison under symlinked checkouts.
+# @@Changelog        :  PROMPT.md (the human-owned prompt/instructions file) is a known non-spec root file. Earlier: realpath-normalise the recorded project path so it matches enforce-test-lint-gate.sh's realpath comparison under symlinked checkouts.
 # @@TODO             :
 # @@Other              :  Pairs with spec-guard.sh (checks this marker) and enforce-test-lint-gate.sh (reuses it for the spec-collection branch).
 # @@Resource         :  ~/.claude/memory/project_conventions.md
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202609170001-git"
+VERSION="202611261600-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 
 set -euo pipefail
@@ -75,12 +75,12 @@ case "$SPEC_GUARD_MARK_BASENAME" in
     for SPEC_GUARD_MARK_CANDIDATE in "$SPEC_GUARD_MARK_PROJECT"/*.md; do
       [ -e "$SPEC_GUARD_MARK_CANDIDATE" ] || continue
       case "${SPEC_GUARD_MARK_CANDIDATE##*/}" in
-        README.md | LICENSE.md | CLAUDE.md | IDEA.md | TODO.AI.md | TODO.md | PLAN.AI.md | PLAN.md) ;;
+        README.md | LICENSE.md | CLAUDE.md | IDEA.md | TODO.AI.md | TODO.md | PLAN.AI.md | PLAN.md | PROMPT.md) ;;
         *) exit 0 ;;
       esac
     done
     ;;
-  LICENSE.md | CLAUDE.md | IDEA.md | TODO.AI.md | TODO.md | PLAN.AI.md | PLAN.md)
+  LICENSE.md | CLAUDE.md | IDEA.md | TODO.AI.md | TODO.md | PLAN.AI.md | PLAN.md | PROMPT.md)
     exit 0
     ;;
   *.md)

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202611220003-git
+##@Version           :  202611261600-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,14 +10,14 @@
 # @@Created          :  Thursday, May 15, 2026 00:00 EDT
 # @@File             :  no-forbidden-files.sh
 # @@Description      :  PreToolUse hook: confirm before writing normally-forbidden files
-# @@Changelog        :  Allowlist the template root files AGENTS.md, CLAUDE.md, CLAUDE.local.md, mkdocs.yml and .readthedocs.yaml. Earlier: Decode the stdin payload file as UTF-8 with replacement and fail open on any parse exception (not only JSONDecodeError) — a non-UTF-8 byte previously raised UnicodeDecodeError and surfaced as a hook error. Parse with strict=False like every other hook so raw control characters inside content strings never abort the scan.
+# @@Changelog        :  Writing PROMPT.md (human-owned prompt/instructions file) needs explicit user approval; the AI only reads and follows it. Earlier: Allowlist the template root files AGENTS.md, CLAUDE.md, CLAUDE.local.md, mkdocs.yml and .readthedocs.yaml. Earlier: Decode the stdin payload file as UTF-8 with replacement and fail open on any parse exception (not only JSONDecodeError) — a non-UTF-8 byte previously raised UnicodeDecodeError and surfaced as a hook error. Parse with strict=False like every other hook so raw control characters inside content strings never abort the scan.
 # @@TODO             :  Better docs
 # @@Other            :
 # @@Resource         :  home/memory/project_files.md
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202611220003-git"
+VERSION="202611261600-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 set -euo pipefail
 
@@ -490,6 +490,8 @@ FORBIDDEN_PATH_PATTERNS = [
 def is_forbidden(fp, bn, root_rel):
     # Basename and extension checks are case-insensitive (ID_RSA, cert.PEM, Secrets.json).
     bn_lower = bn.lower()
+    if bn == "PROMPT.md":
+        return bn, "human-owned prompt/instructions file: AI reads and follows it, never rewrites, deletes or restructures it"
     if bn_lower in FORBIDDEN_BASENAMES:
         return bn, "credential/secrets/OS-detritus file"
     if bn_lower in FORBIDDEN_REPORT_BASENAMES:

@@ -130,6 +130,7 @@ This table covers files Claude actively manages and files with non-obvious place
 | `release.txt` | Version | | Canonical version string |
 | `version.txt` | Version | | Alias for `release.txt` — some projects use this name |
 | `site.txt` | Meta | | Official site/homepage URL |
+| `PROMPT.md` | Prompt | | Optional human-owned prompt/instructions file — AI reads and follows it, never rewrites or deletes it |
 | `PLAN.md` | Planning | | Human-owned project plan |
 | `PLAN.AI.md` | Planning | | AI-owned implementation plan — deleted once work is fully committed |
 | `TODO.md` | Planning | | Human-owned task list |

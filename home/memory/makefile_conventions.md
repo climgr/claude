@@ -59,7 +59,7 @@ All projects define these targets (when applicable). All are `.PHONY`.
 | `test` | Lint + vet + test suite |
 | `dev` | Quick single-platform build into a temp dir for local testing |
 | `lint` | Linter/formatter check only (no test suite) |
-| `docker` | Build multi-arch Docker image locally (no push) |
+| `docker` | Build the host-platform Docker image locally with `--load` so the image check can run it (no push, no multi-arch: both are CI/CD's job) |
 | `release` | Prepare release archives in `releases/`; first prerequisite is `release-check` |
 | `release-check` | Internal helper, never a workflow entry point: fails with `ERROR:` on stderr and exit `78` unless `release.txt` is a stable `X.Y.Z` (devel ids and prereleases come from CI, never `make release`) |
 | `beta` | Tag the current clean `main` commit `YYYYMMDDHHMMSS-beta` and push the tag; CI builds and publishes the beta (Go/Rust templates) |

@@ -33,7 +33,7 @@ All projects have exactly two test phases. They are distinct in purpose, command
 | `./binaries/{project_name}` on the host | Phase 2: `./tests/docker.sh` or `./tests/incus.sh` |
 | `{project_name} serve` on the host | `make dev` → binary in temp dir → run inside Docker |
 
-Run the binary in Docker (`alpine:latest`) for quick checks or in Incus (`debian:latest`) for full systemd/service testing. The Phase 2 scripts (`./tests/run_tests.sh`, `./tests/docker.sh`, `./tests/incus.sh`) handle this correctly — prefer them over ad-hoc `docker run` invocations.
+Run the binary in Docker (`alpine:latest`) for quick checks or in Incus (`debian/trixie` for systemd, `alpine/{latest_stable}` for OpenRC) for full systemd/service testing. The Phase 2 scripts (`./tests/run_tests.sh`, `./tests/docker.sh`, `./tests/incus.sh`) handle this correctly — prefer them over ad-hoc `docker run` invocations.
 
 ### Phase 2 Trigger Phrases
 

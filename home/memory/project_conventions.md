@@ -28,6 +28,7 @@ All relative file references (`AI.md`, `./src`, `./`) resolve from `$PWD`. Absol
 | **TODO.AI.md** | AI-owned task list. Required when working on more than 2 items. Completed items are REMOVED in the commit that completes them (not marked done and left); rules: `gitcommit_conventions.md` § TODO.AI.md Completion. | Yes |
 | **TODO.md** | Human-owned task list; AI **must** mark done when completed (leaving unmarked is misleading), never delete/empty entries | Limited |
 | **PLAN.AI.md** | AI-owned implementation plan — delete when the work it describes is fully committed | Yes |
+| **PROMPT.md** | Optional, human-owned prompt/instructions file at the project root. AI reads and follows it; never rewrites, deletes or restructures it (writing it needs explicit user approval) | No |
 | **PLAN.md** | Human-owned plan; AI **must** mark done when completed, never delete entries or rewrite wholesale | Limited |
 | **CLAUDE.md** | Short loader pointing at AI.md and IDEA.md. No project-specific spec or rule content. Mirrored byte-for-byte into `AGENTS.md` (a real file copy, never a symlink), kept in sync. | No |
 

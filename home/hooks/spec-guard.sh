@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202611220003-git
+##@Version           :  202611261600-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,12 +10,12 @@
 # @@Created          :  Monday, July 20, 2026 00:00 EDT
 # @@File             :  spec-guard.sh
 # @@Description      :  PreToolUse hook: block Edit/Write on project files until AI.md/SPEC.md was read this session
-# @@Changelog        :  Also exempt CLAUDE.local.md; exempt AGENTS.md; a project with only CLAUDE.md or AGENTS.md is ungoverned (no broken-bootstrap block); user-directed bypass: a no-op Bash command prefixed SPEC_GUARD_ALLOW=1 records the session marker (also registered on PreToolUse Bash). Wrapped two long BLOCKED message strings onto multiple lines to fix line-length violations.
+# @@Changelog        :  PROMPT.md is exempt from the AI.md-read requirement (it is human-owned and AI never edits it). Earlier: Also exempt CLAUDE.local.md; exempt AGENTS.md; a project with only CLAUDE.md or AGENTS.md is ungoverned (no broken-bootstrap block); user-directed bypass: a no-op Bash command prefixed SPEC_GUARD_ALLOW=1 records the session marker (also registered on PreToolUse Bash). Wrapped two long BLOCKED message strings onto multiple lines to fix line-length violations.
 # @@TODO             :
 # @@Other            :  Gates repos with AI.md/SPEC.md; exempt: meta/spec, AGENTS.md, README/LICENSE, COMMIT_MESS, env, .no_push; bypass: user-directed SPEC_GUARD_ALLOW=1 Bash prefix only.
 # @@Resource         :  ~/.claude/memory/project_conventions.md
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202611220003-git"
+VERSION="202611261600-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 
 set -euo pipefail
@@ -80,7 +80,7 @@ case "$SPEC_GUARD_FILE_PATH" in
   */.git/* | */.claude/*) exit 0 ;;
 esac
 case "${SPEC_GUARD_FILE_PATH##*/}" in
-  AI.md | IDEA.md | SPEC.md | CLAUDE.md | CLAUDE.local.md | AGENTS.md | TODO.AI.md | TODO.md | PLAN.AI.md | PLAN.md \
+  AI.md | IDEA.md | SPEC.md | CLAUDE.md | CLAUDE.local.md | AGENTS.md | TODO.AI.md | TODO.md | PLAN.AI.md | PLAN.md | PROMPT.md \
     | COMMIT_MESS | .env | app.env | default.env | .no_push | README.md | LICENSE.md)
     exit 0
     ;;

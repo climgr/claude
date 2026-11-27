@@ -164,10 +164,13 @@ Base/toolchain images always pull from `docker.io` regardless of provider.
 
 ```yaml
 stages:
+  - lint
+  - security
   - build
   - test
-  - security
+  - package
   - release
+  - docker
 
 variables:
   CGO_ENABLED: "0"
@@ -642,7 +645,7 @@ Use 7 days for transient build artifacts; 30 days for release staging artifacts 
 
 `ci.yml` must enforce a minimum coverage threshold. The threshold is defined in `{project_dir}/IDEA.md` under `## Business logic`. If not specified, default is 60%. CI must fail when coverage drops below the threshold — a passing build with uncovered code is a silent regression.
 
-**Go:** collect coverage with `-test.gocoverdir`, never `-coverprofile` (every test process writes its own file, so no shared profile can end up malformed): `mkdir -p "$COVDIR/data"`, `go test -cover ./... -args -test.gocoverdir="$COVDIR/data"`, `go tool covdata textfmt -i="$COVDIR/data" -o="$COVDIR/coverage.out"`, then `go tool cover -func="$COVDIR/coverage.out" | grep '^total:'` to parse the total; fail (message to stderr) if below threshold. Always follow the full tempdir convention: `mkdir -p "/tmp/{project_org}"` then `COVDIR=$(mktemp -d "/tmp/{project_org}/{internal_name}-XXXXXX")`. In a CI `container:` job write `COVDIR` to `$GITHUB_ENV` so subsequent steps can read it. In a Makefile `sh -c`, expand `$(PROJECTORG)` and `$(PROJECTNAME)` at Make-time.
+**Go:** collect coverage with `-test.gocoverdir`, never `-coverprofile` (every test process writes its own file, so no shared profile can end up malformed): `mkdir -p "$COVDIR/data"`, `TMPDIR="$COVDIR" go test -cover ./... -args -test.gocoverdir="$COVDIR/data"` (`TMPDIR` points the tests' own temp files into the coverage directory), `go tool covdata textfmt -i="$COVDIR/data" -o="$COVDIR/coverage.out"`, then `go tool cover -func="$COVDIR/coverage.out" | grep '^total:'` to parse the total; fail (message to stderr) if below threshold. Always follow the full tempdir convention: `mkdir -p "/tmp/{project_org}"` then `COVDIR=$(mktemp -d "/tmp/{project_org}/{internal_name}-XXXXXX")`. In a CI `container:` job write `COVDIR` to `$GITHUB_ENV` so subsequent steps can read it. In a Makefile `sh -c`, expand `$(PROJECTORG)` and `$(PROJECTNAME)` at Make-time.
 **Rust:** use `cargo tarpaulin` or `cargo llvm-cov`; fail if below threshold.
 
 ## Security Requirements
@@ -798,9 +801,9 @@ Always write the message so a developer reading only the step name + message can
 
 ### Release pre-flight validation
 
-The GitHub Releases API returns HTTP 422 with `"tag_name is not a valid tag"` when the tag does not exist in the repository at the time of the API call, or when the tag name is malformed. The correct fix is not to *validate* that the tag exists but for the **release job to own the tag** — delete it if it exists, then create it fresh. This ensures the tag always points to the correct commit and makes the workflow idempotent (re-runnable on failure).
+The GitHub Releases API returns HTTP 422 with `"tag_name is not a valid tag"` when the tag does not exist at API call time or is malformed. The release is triggered BY a tag push, so that tag exists: the pre-flight verifies it and NEVER deletes, recreates or moves it. `release.yml` and `beta.yml` may carry `workflow_dispatch` only to re-run for an existing tag: the run is started with that tag selected as the ref (a branch ref fails the pre-flight on purpose) and there is no tag input. Tag policy: a release tag (`v*`) and a beta tag (`*-beta`) are immutable once pushed; only the rolling `devel` tag is deleted and recreated (by `devel.yml` and the GitLab `release:devel` job). `make release` likewise stops when `v{version}` already exists locally or on the remote (bump the version instead).
 
-The `release` job needs `contents: write` to push the tag — it already has this permission per the workflow permissions pattern.
+The `release` job already has `contents: write` to push assets, which covers a tag push as well.
 
 ```yaml
 - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -811,23 +814,21 @@ The `release` job needs `contents: write` to push the tag — it already has thi
 - name: Ensure release tag
   run: |
     ref="${{ github.ref }}"
-    # Must be triggered by a tag push or workflow_dispatch with a tag input
     if [[ "$ref" != refs/tags/* ]]; then
       echo "::error::release.yml triggered on non-tag ref '$ref'. Releases require a tag push (refs/tags/v...)."
       exit 1
     fi
     tag="${ref#refs/tags/}"
-    # Reject malformed tag names before touching the remote
     if printf '%s' "$tag" | grep -qP '[[:space:][:cntrl:]]'; then
       echo "::error::Tag '$tag' contains whitespace or control characters and is not a valid GitHub tag name."
       exit 1
     fi
-    # Delete existing tag (local + remote) then recreate at current HEAD
-    git tag -d "$tag" 2>/dev/null || true
-    git push origin ":refs/tags/$tag" 2>/dev/null || true
-    git tag "$tag"
-    git push origin "refs/tags/$tag"
-    echo "Tag '$tag' ensured at $(git rev-parse HEAD)"
+    # the tag that triggered this run exists already and is never deleted or moved: verify that it points at the checked-out commit
+    if [ "$(git rev-parse "refs/tags/$tag^{commit}")" != "$(git rev-parse HEAD)" ]; then
+      echo "::error::Tag '$tag' does not point at the checked-out commit."
+      exit 1
+    fi
+    echo "Tag '$tag' verified at $(git rev-parse HEAD)"
 ```
 
 ## Release Integrity

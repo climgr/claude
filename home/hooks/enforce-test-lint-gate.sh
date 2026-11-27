@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202611261200-git
+##@Version           :  202611271300-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, August 30, 2026 22:00 EDT
 # @@File             :  enforce-test-lint-gate.sh
 # @@Description      :  PreToolUse Bash hook: blocks the commit wrapper's `--dir <path> all` form unless the test and lint gates ran and passed this session for that project.
-# @@Changelog        :  Stricter evidence: a command only counts when a segment that does not start with a reader/printer (echo, grep, cat, ...) matches the gate pattern; evidence older than the newest changed code file (git status, docs and meta files excluded) is stale and blocks; `make lint` counts as lint evidence for projects other than Go/Rust (their *_conventions.md lint target; Go/Rust keep the lint agents); the block message names make/Docker forms instead of host commands. A spec-collection project with no root-level .md to re-read (nothing to test or read) no longer blocks the commit. Decode the stdin payload file as UTF-8 with replacement and fail open on any parse exception (not only JSONDecodeError) — a non-UTF-8 byte previously raised UnicodeDecodeError and surfaced as a hook error.
+# @@Changelog        :  Honors the custom dockersrc go/rust image commands (go-workflow, rust-workflow, gotestsum, cargo nextest run) and the claudemgr template gate commands (staticcheck, golangci-lint run, go vet, gofmt -l, cargo clippy, cargo fmt --check, shellcheck, shfmt -d, ktlint, detekt) as test/lint evidence. Earlier: PROMPT.md (the human-owned prompt/instructions file) is a known non-spec root file. Earlier: Stricter evidence: a command only counts when a segment that does not start with a reader/printer (echo, grep, cat, ...) matches the gate pattern; evidence older than the newest changed code file (git status, docs and meta files excluded) is stale and blocks; `make lint` counts as lint evidence for projects other than Go/Rust (their *_conventions.md lint target; Go/Rust keep the lint agents); the block message names make/Docker forms instead of host commands. A spec-collection project with no root-level .md to re-read (nothing to test or read) no longer blocks the commit. Decode the stdin payload file as UTF-8 with replacement and fail open on any parse exception (not only JSONDecodeError) — a non-UTF-8 byte previously raised UnicodeDecodeError and surfaced as a hook error.
 # @@TODO             :  None
 # @@Other            :  Pairs with test-lint-mark.sh's per-session markers; a project-type heuristic picks the test path (manifest, script-collection re-read, or *.md fallback). TEST_LINT_GATE_OVERRIDE=1 <gitcommit ...> bypasses the gate for that one call — user-directed only, never Claude's own initiative.
 # @@Resource         :  CLAUDE.md - Commit Workflow, home/hooks/test-lint-mark.sh, home/hooks/spec-guard.sh
@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202611261200-git"
+VERSION="202611271300-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 set -euo pipefail
 
@@ -200,6 +200,7 @@ TEST_CMD_RE = re.compile(
     r"|\bctest\b"
     r"|\bdotnet\s+test\b"
     r"|\bmix\s+test\b"
+    r"|\bgo-workflow\b|\brust-workflow\b|\bgotestsum\b|\bcargo\s+nextest\s+run\b"
 )
 BASHN_RE = re.compile(r"\bbash\s+-n\b")
 MAKE_LINT_RE = re.compile(r"\bmake\s+lint\b")
@@ -267,6 +268,9 @@ LINT_CMD_RE = re.compile(
     r"|\bclang-tidy\b|\bcppcheck\b"
     r"|\bdotnet\s+format\s+--verify-no-changes\b"
     r"|\bmix\s+credo\b|\bmix\s+format\s+--check-formatted\b"
+    r"|\bgo-workflow\b|\brust-workflow\b|\bgolangci-lint\s+run\b|\bstaticcheck\b"
+    r"|\bgo\s+vet\b|\bgofmt\s+-l\b|\bcargo\s+clippy\b|\bcargo\s+fmt\b[^|;&]*--check\b"
+    r"|\bshellcheck\b|\bshfmt\s+-d\b|\bktlint\b|\bdetekt\b"
 )
 # No new lint-agent subagent_types are added for the languages below —
 # coverage is via TEST_CMD_RE/LINT_CMD_RE direct-command matching plus a
@@ -499,7 +503,7 @@ def is_spec_collection(root):
 
 # Root-level .md files that spec-guard-mark.sh never records as a spec read.
 NON_SPEC_MD = (
-    "LICENSE.md", "CLAUDE.md", "IDEA.md", "TODO.AI.md", "TODO.md", "PLAN.AI.md", "PLAN.md",
+    "LICENSE.md", "CLAUDE.md", "IDEA.md", "TODO.AI.md", "TODO.md", "PLAN.AI.md", "PLAN.md", "PROMPT.md",
 )
 
 

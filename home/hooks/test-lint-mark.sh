@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202611261200-git
+##@Version           :  202611271300-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, August 30, 2026 22:00 EDT
 # @@File             :  test-lint-mark.sh
 # @@Description      :  PostToolUse Bash hook: records per session/project that a test-gate or lint-gate command exited 0, pairing with enforce-test-lint-gate.sh.
-# @@Changelog        :  Evidence matching is now segment-aware (a command that only echoes/greps/prints a gate command no longer counts), `make lint` counts as lint evidence for non-Go/Rust projects (their *_conventions.md lint target; Go/Rust keep the lint-agent gate), and every marker line carries the epoch so the gate can reject evidence older than the last code change. Earlier: Fixed a bug where this hook never wrote a marker for any command, pass or fail: the success check read a nonexistent .tool_response.exit_code field, which jq always defaulted to 1 via `// 1`. Replaced with a check of whether tool_response is an object (success) vs. a bare error string (nonzero exit) — the field Bash's tool_response actually carries, confirmed live. Previously test/lint patterns and the script-collection manifest disqualifier list were expanded to also recognize Kotlin/Gradle, Java/Maven, Ruby, PHP, Swift, Dart/Flutter, C/C++, .NET, and Elixir — kept in sync with enforce-test-lint-gate.sh's MANIFESTS/TEST_CMD_RE/LINT_CMD_RE.
+# @@Changelog        :  Honors the custom dockersrc go/rust image commands (go-workflow, rust-workflow, gotestsum, cargo nextest run) and the claudemgr template gate commands (staticcheck, golangci-lint run, go vet, gofmt -l, cargo clippy, cargo fmt --check, shellcheck, shfmt -d, ktlint, detekt) as test/lint evidence. Earlier: Evidence matching is now segment-aware (a command that only echoes/greps/prints a gate command no longer counts), `make lint` counts as lint evidence for non-Go/Rust projects (their *_conventions.md lint target; Go/Rust keep the lint-agent gate), and every marker line carries the epoch so the gate can reject evidence older than the last code change. Earlier: Fixed a bug where this hook never wrote a marker for any command, pass or fail: the success check read a nonexistent .tool_response.exit_code field, which jq always defaulted to 1 via `// 1`. Replaced with a check of whether tool_response is an object (success) vs. a bare error string (nonzero exit) — the field Bash's tool_response actually carries, confirmed live. Previously test/lint patterns and the script-collection manifest disqualifier list were expanded to also recognize Kotlin/Gradle, Java/Maven, Ruby, PHP, Swift, Dart/Flutter, C/C++, .NET, and Elixir — kept in sync with enforce-test-lint-gate.sh's MANIFESTS/TEST_CMD_RE/LINT_CMD_RE.
 # @@TODO             :  None
 # @@Other              :  Only marks when tool_response is an object and interrupted == false — a failed or timed-out run must never count as passing.
 # @@Resource         :  CLAUDE.md - Commit Workflow (Test gate, Lint gate), home/hooks/spec-guard-mark.sh
@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202611261200-git"
+VERSION="202611271300-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 set -euo pipefail
 
@@ -108,6 +108,7 @@ TEST_LINT_MARK_TEST_RE="${TEST_LINT_MARK_TEST_RE}|\bphpunit\b|\bcomposer[[:space
 TEST_LINT_MARK_TEST_RE="${TEST_LINT_MARK_TEST_RE}|\bswift[[:space:]]+test\b"
 TEST_LINT_MARK_TEST_RE="${TEST_LINT_MARK_TEST_RE}|\bflutter[[:space:]]+test\b|\bdart[[:space:]]+test\b"
 TEST_LINT_MARK_TEST_RE="${TEST_LINT_MARK_TEST_RE}|\bctest\b|\bdotnet[[:space:]]+test\b|\bmix[[:space:]]+test\b"
+TEST_LINT_MARK_TEST_RE="${TEST_LINT_MARK_TEST_RE}|\bgo-workflow\b|\brust-workflow\b|\bgotestsum\b|\bcargo[[:space:]]+nextest[[:space:]]+run\b"
 __test_lint_mark_matches "$TEST_LINT_MARK_TEST_RE" "$TEST_LINT_MARK_CMD" && TEST_LINT_MARK_IS_TEST=1
 __test_lint_mark_matches '\bbash[[:space:]]+-n\b' "$TEST_LINT_MARK_CMD" && TEST_LINT_MARK_IS_BASHN=1
 # Lint gates: script-lint/go-lint/rust-lint agents (shell/Go/Rust), `npm run
@@ -136,6 +137,11 @@ TEST_LINT_MARK_LINT_RE="${TEST_LINT_MARK_LINT_RE}|\bflutter[[:space:]]+analyze\b
 TEST_LINT_MARK_LINT_RE="${TEST_LINT_MARK_LINT_RE}|\bclang-tidy\b|\bcppcheck\b"
 TEST_LINT_MARK_LINT_RE="${TEST_LINT_MARK_LINT_RE}|\bdotnet[[:space:]]+format[[:space:]]+--verify-no-changes\b"
 TEST_LINT_MARK_LINT_RE="${TEST_LINT_MARK_LINT_RE}|\bmix[[:space:]]+credo\b|\bmix[[:space:]]+format[[:space:]]+--check-formatted\b"
+# The dockersrc go/rust images' go-workflow/rust-workflow pipelines (fmt, vet or
+# clippy, test, build) and the claudemgr template gate commands.
+TEST_LINT_MARK_LINT_RE="${TEST_LINT_MARK_LINT_RE}|\bgo-workflow\b|\brust-workflow\b|\bgolangci-lint[[:space:]]+run\b|\bstaticcheck\b"
+TEST_LINT_MARK_LINT_RE="${TEST_LINT_MARK_LINT_RE}|\bgo[[:space:]]+vet\b|\bgofmt[[:space:]]+-l\b|\bcargo[[:space:]]+clippy\b|\bcargo[[:space:]]+fmt\b[^|;&]*--check\b"
+TEST_LINT_MARK_LINT_RE="${TEST_LINT_MARK_LINT_RE}|\bshellcheck\b|\bshfmt[[:space:]]+-d\b|\bktlint\b|\bdetekt\b"
 __test_lint_mark_matches "$TEST_LINT_MARK_LINT_RE" "$TEST_LINT_MARK_CMD" && TEST_LINT_MARK_IS_LINT=1
 # `make lint` is the lint target the Node/TS, Python, Kotlin, Java, Ruby, PHP,
 # Swift, Dart, C/C++, .NET and Elixir *_conventions.md files define (it runs

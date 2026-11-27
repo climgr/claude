@@ -322,10 +322,11 @@ Rules:
 name: Docker Build
 on:
   push:
-    branches: ['**']
+    # main only: branches are local and temporary, never pushed
+    branches: [main]
     tags:
       - 'v*'
-      - '*.*.*'
+      - '*-beta'
   schedule:
     - cron: '0 4 * * *'
   workflow_dispatch:

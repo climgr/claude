@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202611261500-git
+##@Version           :  202611261600-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, August 30, 2026 19:00 EDT
 # @@File             :  enforce-gitcommit-shape.sh
 # @@Description      :  PreToolUse Bash hook: blocks any commit-wrapper invocation not exactly `--dir <abs-path> all`, `--dir <abs-path> spec` or `--dir <abs-path> push` (CLAUDE.md's Commit Workflow).
-# @@Changelog        :  Branch gate: a valid `--dir <abs-path> all|spec|push` is also blocked when that repo (our project shape: AI.md, SPEC.md, IDEA.md, CLAUDE.md or a root spec .md) is not on `main`, per the templates' Definition of Done; a repo with no commits yet and third-party repos are exempt. Earlier: Accept `--dir <abs-path> push` (bare `push` now blocked) and `spec`; block message lists every valid form and the absolute-path rule. Ignore shell redirections (2>&1, >/dev/null, >> log) after a valid invocation — they were counted as extra args and falsely blocked; decode stdin as UTF-8 with replacement and fail open on any parse exception.
+# @@Changelog        :  PROMPT.md (the human-owned prompt/instructions file) is a known non-spec root file. Earlier: Branch gate: a valid `--dir <abs-path> all|spec|push` is also blocked when that repo (our project shape: AI.md, SPEC.md, IDEA.md, CLAUDE.md or a root spec .md) is not on `main`, per the templates' Definition of Done; a repo with no commits yet and third-party repos are exempt. Earlier: Accept `--dir <abs-path> push` (bare `push` now blocked) and `spec`; block message lists every valid form and the absolute-path rule. Ignore shell redirections (2>&1, >/dev/null, >> log) after a valid invocation — they were counted as extra args and falsely blocked; decode stdin as UTF-8 with replacement and fail open on any parse exception.
 # @@TODO             :  None
 # @@Other              :  Does not apply to raw git commit/push (governed by zone-git-commit-push.sh instead); the commit wrapper has no zone exception anywhere.
 # @@Resource         :  CLAUDE.md - Commit Workflow
@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-VERSION="202611261500-git"
+VERSION="202611261600-git"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 set -euo pipefail
 
@@ -140,7 +140,7 @@ gate_failures = []
 # these, so its own branch workflow is left alone (external_contributions.md).
 NON_SPEC_MD = {
     "README.md", "LICENSE.md", "CHANGELOG.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md",
-    "AUTHORS.md", "NOTICE.md", "TODO.md", "TODO.AI.md", "PLAN.md", "PLAN.AI.md",
+    "AUTHORS.md", "NOTICE.md", "TODO.md", "TODO.AI.md", "PLAN.md", "PLAN.AI.md", "PROMPT.md",
 }
 
 

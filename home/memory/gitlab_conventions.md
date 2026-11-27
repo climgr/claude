@@ -16,10 +16,13 @@ GitLab CI uses stages. Jobs in the same stage run in parallel; stages run sequen
 
 ```yaml
 stages:
+  - lint
+  - security
   - build
   - test
-  - security
+  - package
   - release
+  - docker
 
 variables:
   CGO_ENABLED: "0"
