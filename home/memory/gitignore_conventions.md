@@ -141,7 +141,8 @@ docker/volumes/
 # AI tool — Windsurf (personal/secret only)
 .windsurf/settings.json
 
-# AI tool — Aider (history and cache; conf and ignore are committed)
+# AI tool — Aider (history and cache; conf and ignore are committed; the regenerated .aider/ directory is ignored, as in the templates)
+.aider/
 .aider.chat.history.md
 .aider.input.history
 .aider.llm.history
@@ -177,7 +178,7 @@ The same logic applies to every AI tool: **team config is committed; personal ov
 | Codeium | `.codeiumignore` | `.codeium/` |
 | Cline / Roo | `.clinerules`, `.roomodes` | `.cline/cache/` |
 
-**Rule:** never gitignore a tool's entire directory — pinpoint only the personal/secret/cache files. Blanket-ignoring `.cursor/` or `.windsurf/` would also ignore the rules/team config that should be committed.
+**Rule:** never gitignore a tool's entire directory — pinpoint only the personal/secret/cache files. Exception: the regenerated `.aider/` and `.ai/` directories hold no team config and are ignored whole, as in the templates. Blanket-ignoring `.cursor/` or `.windsurf/` would also ignore the rules/team config that should be committed.
 
 **`.claude/` rule (canonical example):** `.claude/settings.local.json` is gitignored (personal overrides and any local-only credentials). Everything else under `.claude/` — `settings.json`, `CLAUDE.md`, `commands/`, `agents/`, `hooks/`, `plans/` — is committed.
 

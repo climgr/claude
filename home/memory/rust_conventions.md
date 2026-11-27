@@ -119,13 +119,14 @@ RUST_DOCKER := timeout -k 30 $(DOCKER_TIMEOUT) docker run --rm --no-healthcheck 
 
 | Target | What it does |
 |--------|-------------|
-| `build` | Builds all platforms inside Docker in ONE container (one `sh -c` loop, never a container per platform); outputs to `binaries/` |
-| `release` | Prepares release archives in `releases/`; first prerequisite is `release-check` |
-| `release-check` | Internal helper: exit `78` with `ERROR:` on stderr unless `release.txt` is a stable `X.Y.Z` |
-| `beta` | Tags the clean `main` commit `YYYYMMDDHHMMSS-beta` and pushes the tag; CI publishes the beta |
-| `test` | Runs `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo audit`, then `cargo test --lib --no-fail-fast` inside Docker |
+| `build` | Debug binaries (symbols kept, no optimization) for all platforms inside Docker in ONE container (one `sh -c` loop, never a container per platform); outputs to `binaries/` |
+| `release` | Production binaries for all platforms (stripped, optimized), source archive and checksums into `releases/`; builds with the version the rule resolves (`VERSION` env, then `release.txt`, then the devel commit id) and never tags or publishes: the stable `v{version}` tag, the beta and devel releases and all publishing are CI/CD's job |
+| `docker` | Builds the host-platform image locally (no push: CI/CD publishes) |
+| `test` | Runs `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo audit`, `cargo deny`, then `cargo test --lib --no-fail-fast` inside Docker, then the binary checks (start, `--help`, `--version`, CLI) |
 | `clean` | Removes `binaries/`, `releases/`, and `target/` |
-| `help` | Prints target list and current version |
+| `help` | Lists the targets; the default goal; builds nothing |
+
+Six targets (`build`, `test`, `release`, `docker`, `clean`, `help`) — DO NOT ADD MORE: no `dev`, `local`, `beta`, `release-check` or `all`. A CI job named `lint`, `secret-scan` or `vuln-scan` runs its tools directly in the toolchain container and adds no target.
 
 ## Build Pattern
 

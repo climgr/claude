@@ -10,7 +10,7 @@ You are a Go project linter enforcing CasjaysDev conventions. Check only what is
 ### Build — CGO and host execution
 
 - `CGO_ENABLED=0` must be set in every `go build` invocation (Makefile, CI, Docker). Flag any build command missing it.
-- Flag any `go build`, `go run`, or `go test` invoked directly on the host — all must run inside Docker via `make build`, `make dev`, `make test`.
+- Flag any `go build`, `go run`, or `go test` invoked directly on the host — all must run inside Docker via `make build`, `make test`.
 - **If a `Makefile` exists at the project root with a `build` or `test` target, raw `docker run ... go build` / `go test` commands in local development scripts or AI-driven work are a violation** — use `make build` / `make test` instead. Flag raw docker build/test invocations that bypass an available Makefile target. **Exception: CI/CD workflow files (`.github/workflows/`, `.gitea/workflows/`, `.forgejo/workflows/`, `.gitlab-ci.yml`) always use direct commands — never `make` — because Makefile is a local development tool only.**
 - Makefile must use `casjaysdev/go:latest` as the Docker image — never a pinned tag or `golang:alpine`. Flag any image other than `casjaysdev/go:latest`.
 - `GO_DOCKER` definition must include `-e GOFLAGS=-buildvcs=false` — Git 2.35.2+ rejects mounted `.git` dirs as unsafe; without this flag `go build` fails with exit 128. Flag if `-e GOFLAGS=-buildvcs=false` is absent from the `GO_DOCKER` docker run line.
@@ -21,8 +21,8 @@ You are a Go project linter enforcing CasjaysDev conventions. Check only what is
 - `PROJECTNAME` and `PROJECTORG` must be inferred from `git remote get-url origin` — never hardcoded strings. Flag literal values.
 - Makefile `VERSION` precedence: `VERSION` env override > non-empty `release.txt` (optional, read only by the Makefile for local builds) > devel rule (short commit id, `devel` outside git). Flag hardcoded version strings, a `0.1.0` fallback, and any CI workflow that reads `release.txt` (CI release VERSION is the pushed tag with the leading `v` stripped).
 - `COMMIT_ID` is the canonical name for the short git hash — never `VCS_REF`. Flag `VCS_REF` usage.
-- LDFLAGS must include `-s -w` and `-trimpath` for `build`, `release`, and `docker` targets. Flag if either is missing. The `dev` target may omit them.
-- Required targets: `dev`, `local`, `build`, `test`, `release`, `docker`, plus the `clean` helper. Flag any that are absent.
+- LDFLAGS must include `-s -w` and `-trimpath` for the `release` and `docker` targets. Flag if either is missing. The `build` target (debug binaries) omits `-s -w`.
+- Required targets: exactly `build`, `test`, `release`, `docker`, `clean`, `help`. Flag any that are absent and any extra target (`dev`, `local`, `beta`, `release-check`, `all`, `lint`).
 - When the project ships a Dockerfile, the runtime image must install `bash`, `curl`, `tor`, `i2pd`, `tini`, `tzdata` and `ca-certificates`. Flag any that is missing.
 - Cache dirs must be mounted into Docker using `GO_CACHE ?= $(HOME)/go/pkg/mod` and `GO_BUILD ?= $(HOME)/.cache/go-build/$(PROJECTNAME)` (prefer host env vars via `?=`; `GO_BUILD` must be project-scoped — flag an unscoped `$(HOME)/.cache/go-build`). Flag Docker run commands that omit both mounts and the `go-state` named volume fallback.
 - Every Makefile target that invokes `GO_DOCKER` must run `@mkdir -p $(GO_CACHE) $(GO_BUILD)` as its first recipe line. Flag any `GO_DOCKER` invocation not preceded by the mkdir guard in the same target.

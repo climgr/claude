@@ -60,17 +60,17 @@ All projects define these targets (when applicable). All are `.PHONY`.
 | `dev` | Quick single-platform build into a temp dir for local testing |
 | `lint` | Linter/formatter check only (no test suite) |
 | `docker` | Build the host-platform Docker image locally with `--load` so the image check can run it (no push, no multi-arch: both are CI/CD's job) |
-| `release` | Prepare release archives in `releases/`; first prerequisite is `release-check` |
-| `release-check` | Internal helper, never a workflow entry point: fails with `ERROR:` on stderr and exit `78` unless `release.txt` is a stable `X.Y.Z` (devel ids and prereleases come from CI, never `make release`) |
-| `beta` | Tag the current clean `main` commit `YYYYMMDDHHMMSS-beta` and push the tag; CI builds and publishes the beta (Go/Rust templates) |
+| `release` | Prepare release archives in `releases/`; never tags or publishes (the stable `v{version}` tag, beta and devel releases and all publishing are CI/CD's job) |
 | `clean` | Remove build output — never source, `.git`, or base images |
+
+**Go and Rust projects (claudemgr templates) have exactly six targets: `build`, `test`, `release`, `docker`, `clean`, `help` — no `dev`, `local`, `beta`, `release-check`, `lint` or `all`.** Their `build` makes debug binaries and `release` production binaries; lint, secret and vulnerability scans are CI jobs (and part of `make test`), never targets. The table above applies to the other languages.
 
 ---
 
 ## `.PHONY` Declaration
 
 ```makefile
-.PHONY: help build test dev lint docker release release-check beta clean
+.PHONY: help build test dev lint docker release clean
 ```
 
 Declare all non-file targets together near the top of the Makefile (or immediately before each target group).

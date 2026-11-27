@@ -32,7 +32,7 @@ Emoji map: ✨ feat · 🐛 fix · 📝 docs · 🎨 style · ♻️ refactor ·
 
 Write `{dir}/.git/COMMIT_MESS` from `git status --porcelain` + `git diff --stat` output — every changed or untracked file described; never write from memory. Re-read `COMMIT_MESS` and compare against the diff before committing — rewrite if anything is missing or wrong. Mechanically enforced by `enforce-commit-mess-coverage.sh`: `gitcommit --dir {dir} all` is blocked while any changed/untracked file in the tree lacks a `- path: change` bullet (a `- dir/: ...` bullet covers files beneath it) — especially relevant after long-running tasks, where the tree accumulates far more files than recent context remembers.
 
-No bare `@` handles and no AI attribution trailers (see above). `gitcommit --dir {dir} spec` commits only markdown spec files; never `-m`/`--message`.
+No bare `@` handles and no AI attribution trailers (see above). In a GitLab or Jenkins project the message of a markdown-only commit (including every `gitcommit spec`) ends with `[skip ci]`, because those providers have no negated path filter (GitHub, Gitea and Forgejo use `paths-ignore`; see `cicd_conventions.md`). `gitcommit --dir {dir} spec` commits only markdown spec files; never `-m`/`--message`.
 
 **Never invent a third-party role label** (`operator decision`, `owner decision`, `admin approved`, etc.) to describe who made a change. Claude Code runs as the user's own agent, not a separate operator/service — there is no third party. State the fact plainly instead: "removed at the user's request," "user-deleted, not a regression," or just describe the change with no attribution clause at all when the reason is self-evident from context.
 
@@ -83,7 +83,7 @@ Never stop at "edits finished", at "ready for review", or with a message that te
 
 ## Who Commits
 
-**Only the main session ever runs `gitcommit` or raw `git commit`/`git push`.** Agents and subagents — of any type, including forked agents — never commit and never push, under any circumstance, even inside the Local System Management Zone's raw-git exception. Agents also never write `COMMIT_MESS` and never run `make`, tests, lint, or any gate. An agent's job ends at editing its scoped files and reporting back; the main session is the only place that reviews the full diff, writes `COMMIT_MESS`, and invokes the commit. This is a hard rule, mechanically enforced by `no-subagent-commit.sh` (blocks the attempt) — it is not a preference an agent can reason its way around.
+**Only the main session ever runs `gitcommit` or raw `git commit`/`git push`.** Agents and subagents — of any type, including forked agents — never commit and never push, under any circumstance, even inside the Local System Management Zone's raw-git exception. Agents also never write `COMMIT_MESS` and never run `make`, tests, lint, or any gate. An agent's job ends at editing its scoped files and reporting back; the main session is the only place that reviews the full diff, writes `COMMIT_MESS`, and invokes the commit. This is a hard rule, mechanically enforced by `no-subagent-commit.sh` (blocks the attempt) — it is not a preference an agent can reason its way around. "Subagent" means an instance spawned from another session's Agent tool: its tool calls carry the `agent_id` field the hook keys on. A session that is itself started as an agent (for example `claude --agent {name}`) is the main session for the Definition of Done: its calls carry no `agent_id`, so it runs steps 1-6 and commits, exactly as the templates say.
 
 ## TODO.AI.md Completion
 

@@ -20,7 +20,7 @@ All projects have exactly two test phases. They are distinct in purpose, command
 | **Phase 2 — Binary Validation** | `./tests/run_tests.sh` (basic tier, Docker only); `incus.sh`, optional `virt.sh` and `e2e.sh` are separate explicit runs | Compiled binary behavior — routes, auth flows, CLI/server interaction, service installs, container/Incus scenarios | Docker (`alpine:latest`), Incus containers (`debian/trixie` + `alpine`), optional Incus VMs | **Manual only** — developer-initiated |
 
 - **Phase 1 is the commit gate** — `make test` must pass before every `gitcommit`. No exceptions.
-- **Phase 2 is manual** — never run automatically; always developer-initiated after a binary is built (`make dev` / `make local`).
+- **Phase 2 is manual** — never run automatically; always developer-initiated after a binary is built (`make build`); the basic tier also runs as the binary checks at the end of `make test` in the Go and Rust templates.
 - **Both phases run in containers.** Neither runs directly on the host.
 
 ### Binary Execution Rule
@@ -31,7 +31,7 @@ All projects have exactly two test phases. They are distinct in purpose, command
 |-------|--------|
 | `/path/to/binary --flag` on the host | `docker run --rm -v "$BUILD_DIR:/app" alpine:latest /app/{project_name} --flag` |
 | `./binaries/{project_name}` on the host | Phase 2: `./tests/docker.sh` or `./tests/incus.sh` |
-| `{project_name} serve` on the host | `make dev` → binary in temp dir → run inside Docker |
+| `{project_name} serve` on the host | `make build` → binary in `binaries/` → run inside Docker |
 
 Run the binary in Docker (`alpine:latest`) for quick checks or in Incus (`debian/trixie` for systemd, `alpine/{latest_stable}` for OpenRC) for full systemd/service testing. The Phase 2 scripts (`./tests/run_tests.sh`, `./tests/docker.sh`, `./tests/incus.sh`) handle this correctly — prefer them over ad-hoc `docker run` invocations.
 

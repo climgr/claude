@@ -80,14 +80,14 @@ GO_DOCKER := timeout -k 30 $(DOCKER_TIMEOUT) docker run --rm --no-healthcheck \
 
 | Target | What it does |
 |--------|-------------|
-| `build` | All 8 platforms + host binary; outputs to `binaries/`; tidy, download and every platform run in ONE container (one `sh -c` loop, never a container per platform) |
-| `release` | Prepares release archives in `releases/`; first prerequisite is `release-check` |
-| `release-check` | Internal helper: exit `78` with `ERROR:` on stderr unless `release.txt` is a stable `X.Y.Z` |
-| `beta` | Tags the clean `main` commit `YYYYMMDDHHMMSS-beta` and pushes the tag; CI publishes the beta |
+| `build` | Debug binaries (symbols kept, no optimization) for all 8 platforms into `binaries/`; tidy, download and every platform run in ONE container (one `sh -c` loop, never a container per platform) |
+| `release` | Production binaries for all 8 platforms (stripped, optimized), source archive and checksums into `releases/`; builds with the version the rule resolves (`VERSION` env, then `release.txt`, then the devel commit id) and never tags or publishes: the stable `v{version}` tag, the beta and devel releases and all publishing are CI/CD's job |
 | `docker` | Builds the host platform only via `docker buildx build --load` (no push, no multi-arch: multi-arch publishing is CI/CD's job) |
-| `test` | Runs `go vet ./...`, `govulncheck ./...`, then `TMPDIR="$COVDIR" go test -v -cover ./... -args -test.gocoverdir="$COVDIR/data"` inside Docker; the total comes from `go tool covdata textfmt` then `go tool cover -func` (never `-coverprofile`), gate at 60% |
-| `dev` | Quick host-platform-only build into `mktemp` temp dir |
+| `test` | Runs lints, `go vet ./...`, `govulncheck ./...`, the CSS lint test, then `TMPDIR="$COVDIR" go test -v -cover ./... -args -test.gocoverdir="$COVDIR/data"` inside Docker; the total comes from `go tool covdata textfmt` then `go tool cover -func` (never `-coverprofile`), gate at 60% |
 | `clean` | Removes `binaries/` and `releases/` |
+| `help` | Lists the targets; the default goal; builds nothing |
+
+Six targets (`build`, `test`, `release`, `docker`, `clean`, `help`) — DO NOT ADD MORE: no `dev`, `local`, `beta`, `release-check` or `all`. A CI job named `lint`, `secret-scan` or `vuln-scan` runs its tools directly in the toolchain container and adds no target.
 
 ## Build Targets and Binary Naming
 
@@ -191,7 +191,6 @@ dev:
 		echo "Test:  docker run --rm --name $(PROJECTNAME)-test -v $$BUILD_DIR:/app alpine:latest /app/$(PROJECTNAME) --help"
 ```
 
-Always builds into a temp dir for `dev`, never to a hardcoded path.
 
 **Rule — any direct `docker run` with a Go toolchain image** (not via `GO_DOCKER` macro) must include the source and cache mounts:
 
@@ -271,9 +270,9 @@ Never hardcode specific version numbers in spec or template files — they go st
 ## Code Rules
 
 - **CGO_ENABLED=0** — always; pure Go, no C, no exceptions
-- **Strip release binaries** — always pass `-s -w` in LDFLAGS for `build`, `release`, and `docker` targets; `-s` strips the symbol table, `-w` strips DWARF debug info. The `dev` target (quick local build) omits `-s -w` to preserve debug symbols
+- **Strip release binaries** — always pass `-s -w` (and `-trimpath`) for the `release` and `docker` targets; `-s` strips the symbol table, `-w` strips DWARF debug info. The `build` target (debug binaries) omits `-s -w` to preserve debug symbols
 - **No `-musl` suffix** — never include `-musl` in the output binary name; the binary naming schema is `{name}-{GOOS}-{GOARCH}` regardless of libc used to build
-- **No `go build` on host** — always via `make dev`, `make build`, `make test` (Docker internally)
+- **No `go build` on host** — always via `make build`, `make test` (Docker internally)
 - **No external cron** — never depend on host cron or systemd timers for application-level scheduling. Use in-process scheduling only: `time.Ticker` or `time.Sleep` loop for simple periodic tasks; `go-co-op/gocron/v2` for multiple jobs or cron-expression scheduling.
 - **No `strconv.ParseBool()`** — use `config.ParseBool()` which handles 40+ variations
 - **No client-side rendering** — server-side Go templates only
